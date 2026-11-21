@@ -24,11 +24,11 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtSelectedColorHex, txtHueVal, txtSatVal, txtValVal;
     private View viewSelectedColorBox;
     private SeekBar seekColorCount, seekThresh, seekSpeed, seekHue, seekSat, seekVal;
-    private RadioGroup rgMode;
-    private RadioButton rbColor, rbEdge;
+    private RadioGroup rgMode, rgColorPickMode;
+    private RadioButton rbColor, rbEdge, rbPickManual, rbPickAuto;
     private CheckBox cbIgnoreWhite, cbLayerEnabled;
     private LinearLayout layoutColorSwatches;
-    private Button btnLoad, btnPerm, btnService;
+    private Button btnLoad, btnPerm, btnService, btnToggleAllColors;
     private Bitmap originalBitmap;
     private ColorLayer selectedLayer;
     private boolean updatingHsvUi = false;
@@ -60,12 +60,34 @@ public class MainActivity extends AppCompatActivity {
         rgMode = findViewById(R.id.rgMode);
         rbColor = findViewById(R.id.rbColor);
         rbEdge = findViewById(R.id.rbEdge);
+        rgColorPickMode = findViewById(R.id.rgColorPickMode);
+        rbPickManual = findViewById(R.id.rbPickManual);
+        rbPickAuto = findViewById(R.id.rbPickAuto);
         cbIgnoreWhite = findViewById(R.id.cbIgnoreWhite);
         cbLayerEnabled = findViewById(R.id.cbLayerEnabled);
         layoutColorSwatches = findViewById(R.id.layoutColorSwatches);
+        btnToggleAllColors = findViewById(R.id.btnToggleAllColors);
         btnLoad = findViewById(R.id.btnLoad);
         btnPerm = findViewById(R.id.btnPerm);
         btnService = findViewById(R.id.btnService);
+
+        if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
+        else rbPickManual.setChecked(true);
+
+        rgColorPickMode.setOnCheckedChangeListener((g, id) -> {
+            DrawRepository.setAutoHsvBuilda(id == R.id.rbPickAuto);
+        });
+
+        btnToggleAllColors.setOnClickListener(v -> {
+            List<ColorLayer> layers = DrawRepository.getLayers();
+            if (layers == null || layers.isEmpty()) return;
+            boolean anyDisabled = false;
+            for (ColorLayer l : layers) if (!l.enabled) { anyDisabled = true; break; }
+            for (ColorLayer l : layers) l.enabled = anyDisabled;
+            refreshSelectedColorDisplay();
+            refreshSwatchesUi();
+            refreshPreviewOnly();
+        });
 
         btnLoad.setOnClickListener(v -> pickImageLauncher.launch("image/*"));
         btnPerm.setOnClickListener(v -> {
@@ -129,6 +151,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
+        else rbPickManual.setChecked(true);
+
         boolean overlayOk = Settings.canDrawOverlays(this);
         String expected = getPackageName() + "/" + AutoDrawService.class.getCanonicalName();
         String enabled = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
@@ -199,7 +224,9 @@ public class MainActivity extends AppCompatActivity {
             sw.setLayoutParams(lp);
             sw.setGravity(android.view.Gravity.CENTER);
             sw.setTextSize(10f);
-            sw.setText(layer.enabled ? ("#" + (i + 1) + "\n✓") : ("#" + (i + 1) + "\nTắt"));
+            sw.setText(layer.enabled ? ("#" + (i + 1) + "
+✓") : ("#" + (i + 1) + "
+Tắt"));
             int br = (Color.red(layer.color) * 299 + Color.green(layer.color) * 587 + Color.blue(layer.color) * 114) / 1000;
             sw.setTextColor(br > 130 ? Color.BLACK : Color.WHITE);
             GradientDrawable bg = new GradientDrawable();
