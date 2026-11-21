@@ -18,6 +18,8 @@ import android.widget.Toast;
 import java.util.List;
 
 public class AutoDrawService extends AccessibilityService {
+    private static AutoDrawService instance;
+
     private WindowManager windowManager;
     private View panelView;
     private WindowManager.LayoutParams panelParams;
@@ -41,10 +43,41 @@ public class AutoDrawService extends AccessibilityService {
     private int screenW = 1080, screenH = 2400;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    public static boolean isRunning() {
+        return instance != null;
+    }
+
+    public static void ensureOverlaysVisible() {
+        if (instance != null) {
+            instance.mainHandler.post(() -> instance.restoreAllOverlays());
+        }
+    }
+
+    public void restoreAllOverlays() {
+        if (windowManager == null) return;
+        try {
+            if (panelView == null) {
+                initOverlays();
+                return;
+            }
+            panelView.setVisibility(View.VISIBLE);
+            markersVisible = true;
+            updateModeButtonUi();
+            applyMarkerVisibility();
+            setPassThrough(false);
+        } catch (Exception ignored) {}
+    }
+
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        instance = this;
         if (!Settings.canDrawOverlays(this)) return;
+        initOverlays();
+    }
+
+    private void initOverlays() {
+        if (panelView != null) return;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         screenW = dm.widthPixels;
@@ -183,6 +216,7 @@ public class AutoDrawService extends AccessibilityService {
     }
 
     private void updateModeButtonUi() {
+        if (btnHsv == null || txtOverlayStatus == null) return;
         boolean auto = DrawRepository.isAutoHsvBuilda();
         btnHsv.setText(auto ? "Màu:Tự động" : "Màu:Tay");
         txtOverlayStatus.setText(auto
@@ -191,6 +225,7 @@ public class AutoDrawService extends AccessibilityService {
     }
 
     private void applyMarkerVisibility() {
+        if (targetBoxView == null) return;
         int vis = markersVisible ? View.VISIBLE : View.GONE;
         targetBoxView.setVisibility(vis);
         int hsvVis = (markersVisible && DrawRepository.isAutoHsvBuilda()) ? View.VISIBLE : View.GONE;
@@ -217,7 +252,7 @@ public class AutoDrawService extends AccessibilityService {
 
     private void setPassThrough(boolean pt) {
         updatePt(targetBoxView, boxParams, pt, 0.18f);
-        updatePt(hsvBoxView, hsvBoxParams, pt, 0.0f); // Ẩn hoàn toàn khung cam trong lúc vẽ để không che tranh
+        updatePt(hsvBoxView, hsvBoxParams, pt, 0.0f);
         updatePt(colorBtnMarker, colorBtnParams, pt, 0.15f);
         updatePt(brushBtnMarker, brushBtnParams, pt, 0.15f);
     }
@@ -281,7 +316,6 @@ public class AutoDrawService extends AccessibilityService {
         }
     }
 
-    /** Chế độ Thủ công: dừng lại, hiện ô màu mẫu + mã H/S/V rõ ràng để người dùng chọn trong Builda rồi bấm Vẽ tiếp. */
     private void manualSelectColor(ColorLayer layer, int idx, int total, Runnable done, Runnable onSkip) {
         resumeAction = done;
         skipAction = onSkip;
@@ -295,7 +329,6 @@ H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
         });
     }
 
-    /** Chế độ Tự động: chạm mở bảng màu -> gạt 3 thanh H, S, V -> chạm nút Bút để đóng bảng và vẽ. */
     private void autoSelectColor(ColorLayer layer, Runnable done) {
         PointF cBtn = centerOf(colorBtnMarker);
         tap(cBtn.x, cBtn.y, () -> mainHandler.postDelayed(() -> {
@@ -308,11 +341,6 @@ H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
         }, 550L));
     }
 
-    /**
-     * Điều chỉnh 3 thanh H, S, V chính xác trong Builda:
-     * Vì không biết núm trượt hiện tại đang nằm ở đâu, mỗi thanh sẽ kéo nhanh từ phải sang mép trái (reset về 0)
-     * rồi kéo từ mép trái tới đúng tỷ lệ mục tiêu (targetFrac).
-     */
     private void applyHsv(ColorLayer layer, Runnable done) {
         int[] loc = new int[2];
         hsvBoxView.getLocationOnScreen(loc);
@@ -342,7 +370,6 @@ H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
     private void setSliderAccurate(float left, float trackW, float y, float targetFrac, Runnable done) {
         float right = left + trackW;
         float targetX = left + Math.max(0f, Math.min(1f, targetFrac)) * trackW;
-        // Kéo về 0 ở mép trái trước, sau đó kéo đến đúng vị trí targetX
         slide(right, left, y, 140L, () -> {
             if (!isDrawing) return;
             if (targetFrac <= 0.01f) {
@@ -459,6 +486,7 @@ H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {}
     @Override public void onInterrupt() { isDrawing = false; }
     @Override public void onDestroy() {
+        instance = null;
         super.onDestroy();
         isDrawing = false;
         for (View v : new View[]{panelView, targetBoxView, hsvBoxView, colorBtnMarker, brushBtnMarker}) {
@@ -466,6 +494,7 @@ H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
                 try { windowManager.removeView(v); } catch (Exception ignored) {}
             }
         }
+        panelView = null;
     }
 
     private class TargetBoxView extends View {
@@ -530,7 +559,7 @@ H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
             for (int i = 0; i < 3; i++) {
                 float y = h * ((2 * i + 1) / 6f);
                 c.drawLine(28, y, w - 28, y, lp);
-                c.drawCircle(28, y, 8, cp); // Điểm mốc 0 của từng thanh
+                c.drawCircle(28, y, 8, cp);
                 c.drawText(lb[i], 6, y + 8, tp);
             }
             c.drawCircle(w - 18, h - 18, 18, cp);
@@ -604,4 +633,4 @@ H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
             return super.onTouchEvent(e);
         }
     }
-            }
+                                                                                                    }
