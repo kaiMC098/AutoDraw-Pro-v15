@@ -151,15 +151,23 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        AutoDrawService.ensureOverlaysVisible();
         if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
         else rbPickManual.setChecked(true);
 
         boolean overlayOk = Settings.canDrawOverlays(this);
         String expected = getPackageName() + "/" + AutoDrawService.class.getCanonicalName();
         String enabled = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        boolean serviceOk = !TextUtils.isEmpty(enabled) && (enabled.contains(expected) || enabled.contains(getPackageName() + "/.AutoDrawService"));
+        boolean settingEnabled = !TextUtils.isEmpty(enabled) && (enabled.contains(expected) || enabled.contains(getPackageName() + "/.AutoDrawService"));
+        boolean running = AutoDrawService.isRunning();
         btnPerm.setText(overlayOk ? "2. Quyền Overlay: ĐÃ BẬT ✓" : "2. Cấp quyền hiển thị nổi (Overlay)");
-        btnService.setText(serviceOk ? "3. Dịch vụ AutoDraw: ĐANG CHẠY ✓" : "3. Bật dịch vụ AutoDraw (Trợ năng)");
+        if (running) {
+            btnService.setText("3. Dịch vụ AutoDraw: ĐANG CHẠY ✓");
+        } else if (settingEnabled) {
+            btnService.setText("3. Bị hệ thống ngắt nền — Bấm để bật lại");
+        } else {
+            btnService.setText("3. Bật dịch vụ AutoDraw (Trợ năng)");
+        }
     }
 
     private void loadBitmapFromUri(Uri uri) {
