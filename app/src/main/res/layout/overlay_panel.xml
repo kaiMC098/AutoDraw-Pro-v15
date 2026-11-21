@@ -40,7 +40,7 @@
             android:backgroundTint="#8B5CF6"
             android:minWidth="0dp"
             android:paddingHorizontal="8dp"
-            android:text="HSV:Bật"
+            android:text="Màu:Tay"
             android:textColor="#FFFFFF"
             android:textSize="11sp" />
         <Button
@@ -66,12 +66,37 @@
             android:textColor="#FFFFFF"
             android:textSize="11sp" />
     </LinearLayout>
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <View
+            android:id="@+id/viewColorPreview"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:visibility="gone" />
+        <Button
+            android:id="@+id/btnContinueDraw"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="6dp"
+            android:backgroundTint="#2563EB"
+            android:minWidth="0dp"
+            android:paddingHorizontal="14dp"
+            android:text="Đã chọn màu - Tiếp"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:visibility="gone" />
+    </LinearLayout>
     <TextView
         android:id="@+id/txtOverlayStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:text="Đặt [Khung vẽ], [Màu], [Bút], [Thanh HSV] vào Builda"
+        android:maxWidth="300dp"
+        android:text="Đặt [Khung vẽ] lên Builda rồi bấm Vẽ. Mỗi màu sẽ dừng để bạn chọn màu, xong bấm Tiếp."
         android:textColor="#CBD5E1"
         android:textSize="10sp" />
 </LinearLayout>
