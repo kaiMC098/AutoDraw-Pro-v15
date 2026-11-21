@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="#EE1E293B"
+    android:elevation="10dp"
+    android:orientation="vertical"
+    android:padding="6dp">
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/btnDragHandle"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:paddingHorizontal="6dp"
+            android:text="✥"
+            android:textColor="#38BDF8"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+        <Button
+            android:id="@+id/btnToggleMarkers"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="3dp"
+            android:backgroundTint="#475569"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="Khung"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp" />
+        <Button
+            android:id="@+id/btnColorModeSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="3dp"
+            android:backgroundTint="#8B5CF6"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="HSV:Bật"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp" />
+        <Button
+            android:id="@+id/btnStartDraw"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="3dp"
+            android:backgroundTint="#10B981"
+            android:minWidth="0dp"
+            android:paddingHorizontal="10dp"
+            android:text="Vẽ"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp" />
+        <Button
+            android:id="@+id/btnStopDraw"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:layout_marginStart="3dp"
+            android:backgroundTint="#EF4444"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="Dừng"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/txtOverlayStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Đặt [Khung vẽ], [Màu], [Bút], [Thanh HSV] vào Builda"
+        android:textColor="#CBD5E1"
+        android:textSize="10sp" />
+</LinearLayout>
