@@ -7,6 +7,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.view.*;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Button;
@@ -29,6 +30,11 @@ public class AutoDrawService extends AccessibilityService {
     private WindowManager.LayoutParams brushBtnParams;
     private boolean markersVisible = true;
     private volatile boolean isDrawing = false;
+    private Button btnHsv, btnContinue;
+    private View viewColorPreview;
+    private Runnable resumeAction;          // việc sẽ làm tiếp sau khi người dùng chọn màu xong
+    private float curH = 0f, curS = 0f, curV = 0f;   // vị trí núm trượt (0..1) mà dịch vụ đang nhớ
+    private int screenW = 1080, screenH = 2400;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -62,7 +68,6 @@ public class AutoDrawService extends AccessibilityService {
 
         TextView drag = panelView.findViewById(R.id.btnDragHandle);
         Button btnToggle = panelView.findViewById(R.id.btnToggleMarkers);
-        Button btnHsv = panelView.findViewById(R.id.btnColorModeSwitch);
         Button btnStart = panelView.findViewById(R.id.btnStartDraw);
         Button btnStop = panelView.findViewById(R.id.btnStopDraw);
         txtOverlayStatus = panelView.findViewById(R.id.txtOverlayStatus);
@@ -76,22 +81,32 @@ public class AutoDrawService extends AccessibilityService {
             }
         });
 
+        btnHsv = panelView.findViewById(R.id.btnColorModeSwitch);
+        btnContinue = panelView.findViewById(R.id.btnContinueDraw);
+        viewColorPreview = panelView.findViewById(R.id.viewColorPreview);
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        screenW = dm.widthPixels; screenH = dm.heightPixels;
+
+        btnHsv.setText(DrawRepository.isAutoHsvBuilda() ? "Màu:Tự động" : "Màu:Tay");
+        applyMarkerVisibility();
+
         btnToggle.setOnClickListener(v -> {
             if (isDrawing) return;
             markersVisible = !markersVisible;
-            int vis = markersVisible ? View.VISIBLE : View.GONE;
-            targetBoxView.setVisibility(vis);
-            int hsvVis = (markersVisible && DrawRepository.isAutoHsvBuilda()) ? View.VISIBLE : View.GONE;
-            hsvBoxView.setVisibility(hsvVis); colorBtnMarker.setVisibility(hsvVis); brushBtnMarker.setVisibility(hsvVis);
+            applyMarkerVisibility();
         });
 
         btnHsv.setOnClickListener(v -> {
             if (isDrawing) return;
             boolean next = !DrawRepository.isAutoHsvBuilda();
             DrawRepository.setAutoHsvBuilda(next);
-            btnHsv.setText(next ? "HSV:Bật" : "HSV:Tắt");
-            int vis = (markersVisible && next) ? View.VISIBLE : View.GONE;
-            hsvBoxView.setVisibility(vis); colorBtnMarker.setVisibility(vis); brushBtnMarker.setVisibility(vis);
+            if (next) { curH = 0f; curS = 0f; curV = 0f; }
+            btnHsv.setText(next ? "Màu:Tự động" : "Màu:Tay");
+            applyMarkerVisibility();
+            txtOverlayStatus.setText(next
+                ? "Tự động: đặt khung cam khít 3 thanh H-S-V của Builda (núm đang ở 0), chấm Màu/Bút lên nút tương ứng."
+                : "Tay: mỗi màu sẽ dừng để bạn chọn, xong bấm Tiếp.");
         });
 
         btnStart.setOnClickListener(v -> {
@@ -101,7 +116,36 @@ public class AutoDrawService extends AccessibilityService {
             startColorDrawing(layers);
         });
 
-        btnStop.setOnClickListener(v -> { isDrawing = false; setPassThrough(false); txtOverlayStatus.setText("Đã dừng."); });
+        btnContinue.setOnClickListener(v -> {
+            Runnable r = resumeAction;
+            if (r == null) return;
+            resumeAction = null;
+            hidePickUi();
+            txtOverlayStatus.setText("Đang vẽ...");
+            r.run();
+        });
+
+        btnStop.setOnClickListener(v -> {
+            isDrawing = false;
+            resumeAction = null;
+            hidePickUi();
+            setPassThrough(false);
+            txtOverlayStatus.setText("Đã dừng.");
+        });
+    }
+
+    private void applyMarkerVisibility() {
+        int vis = markersVisible ? View.VISIBLE : View.GONE;
+        targetBoxView.setVisibility(vis);
+        int hsvVis = (markersVisible && DrawRepository.isAutoHsvBuilda()) ? View.VISIBLE : View.GONE;
+        hsvBoxView.setVisibility(hsvVis);
+        colorBtnMarker.setVisibility(hsvVis);
+        brushBtnMarker.setVisibility(hsvVis);
+    }
+
+    private void hidePickUi() {
+        if (btnContinue != null) btnContinue.setVisibility(View.GONE);
+        if (viewColorPreview != null) viewColorPreview.setVisibility(View.GONE);
     }
 
     private WindowManager.LayoutParams createParams(int w, int h, int x, int y, int type) {
@@ -125,11 +169,16 @@ public class AutoDrawService extends AccessibilityService {
     }
 
     private void startColorDrawing(List<ColorLayer> layers) {
+        if (!markersVisible) {
+            Toast.makeText(this, "Hãy bấm [Khung] để hiện khung vẽ trước!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        float w = targetBoxView.getWidth(), h = targetBoxView.getHeight(), ratio = DrawRepository.getAspectRatio();
+        if (w <= 0 || h <= 0) return;
         isDrawing = true;
         setPassThrough(true);
         int[] loc = new int[2];
         targetBoxView.getLocationOnScreen(loc);
-        float w = targetBoxView.getWidth(), h = targetBoxView.getHeight(), ratio = DrawRepository.getAspectRatio();
         float drawW = w, drawH = w / ratio;
         if (drawH > h) { drawH = h; drawW = h * ratio; }
         processLayer(layers, 0, loc[0] + (w - drawW) / 2f, loc[1] + (h - drawH) / 2f, drawW, drawH);
@@ -138,61 +187,108 @@ public class AutoDrawService extends AccessibilityService {
     private void processLayer(List<ColorLayer> layers, int idx, float ox, float oy, float dw, float dh) {
         if (!isDrawing || idx >= layers.size()) {
             isDrawing = false;
-            mainHandler.post(() -> { setPassThrough(false); txtOverlayStatus.setText("Hoàn tất!"); });
+            mainHandler.post(() -> { hidePickUi(); setPassThrough(false); txtOverlayStatus.setText("Hoàn tất!"); });
             return;
         }
         ColorLayer layer = layers.get(idx);
-        mainHandler.post(() -> txtOverlayStatus.setText("Màu " + (idx + 1) + "/" + layers.size() + " H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value));
-
+        Runnable startStrokes = () -> drawStroke(layers, idx, 0, ox, oy, dw, dh);
         if (DrawRepository.isAutoHsvBuilda()) {
-            PointF cBtn = centerOf(colorBtnMarker);
-            tap(cBtn.x, cBtn.y, () -> {
-                if (!isDrawing) return;
-                applyHsv(layer, () -> {
-                    if (!isDrawing) return;
-                    PointF bBtn = centerOf(brushBtnMarker);
-                    tap(bBtn.x, bBtn.y, () -> mainHandler.postDelayed(() -> drawStroke(layers, idx, 0, ox, oy, dw, dh), 220L));
-                });
-            });
+            mainHandler.post(() -> txtOverlayStatus.setText("Màu " + (idx + 1) + "/" + layers.size() + ": đang chọn màu " + layer.getHexString()));
+            autoSelectColor(layer, startStrokes);
         } else {
-            drawStroke(layers, idx, 0, ox, oy, dw, dh);
+            manualSelectColor(layer, idx, layers.size(), startStrokes);
         }
+    }
+
+    /** Chế độ Tay: dừng lại, hiện màu cần chọn, đợi người dùng chọn trong Builda rồi bấm Tiếp. */
+    private void manualSelectColor(ColorLayer layer, int idx, int total, Runnable done) {
+        resumeAction = done;
+        mainHandler.post(() -> {
+            setPassThrough(true);
+            viewColorPreview.setBackgroundColor(layer.color);
+            viewColorPreview.setVisibility(View.VISIBLE);
+            btnContinue.setVisibility(View.VISIBLE);
+            txtOverlayStatus.setText("Màu " + (idx + 1) + "/" + total + ": chọn " + layer.getHexString()
+                    + " (H" + layer.hue + " S" + layer.saturation + " V" + layer.value
+                    + ") trong Builda, đóng bảng màu rồi bấm Tiếp.");
+        });
+    }
+
+    /** Chế độ Tự động: mở bảng màu, kéo H-S-V tới đúng giá trị rồi bấm Bút để đóng bảng. */
+    private void autoSelectColor(ColorLayer layer, Runnable done) {
+        PointF cBtn = centerOf(colorBtnMarker);
+        tap(cBtn.x, cBtn.y, () -> mainHandler.postDelayed(() -> {
+            if (!isDrawing) return;
+            applyHsv(layer, () -> {
+                if (!isDrawing) return;
+                PointF bBtn = centerOf(brushBtnMarker);
+                tap(bBtn.x, bBtn.y, () -> mainHandler.postDelayed(done, 350L));
+            });
+        }, 450L));
     }
 
     private void applyHsv(ColorLayer layer, Runnable done) {
         int[] loc = new int[2];
         hsvBoxView.getLocationOnScreen(loc);
-        float left = loc[0] + 24f, trackW = Math.max(40f, hsvBoxView.getWidth() - 48f);
-        float top = loc[1], h = hsvBoxView.getHeight();
-        float yH = top + h * (1f / 6f), yS = top + h * (3f / 6f), yV = top + h * (5f / 6f);
-        float xH = left + (layer.hue / 360f) * trackW;
-        float xS = left + (layer.saturation / 100f) * trackW;
-        float xV = left + (layer.value / 100f) * trackW;
+        final float left = loc[0] + 24f, trackW = Math.max(40f, hsvBoxView.getWidth() - 48f);
+        final float top = loc[1], h = hsvBoxView.getHeight();
+        final float yH = top + h * (1f / 6f), yS = top + h * (3f / 6f), yV = top + h * (5f / 6f);
+        final float tH = layer.hue / 360f, tS = layer.saturation / 100f, tV = layer.value / 100f;
 
         mainHandler.postDelayed(() -> {
             if (!isDrawing) return;
-            slide(left + trackW * 0.5f, xH, yH, () -> mainHandler.postDelayed(() ->
-                slide(left + trackW * 0.5f, xS, yS, () -> mainHandler.postDelayed(() ->
-                    slide(left + trackW * 0.5f, xV, yV, done), 140L)), 140L));
-        }, 320L);
+            moveThumb(left, trackW, yH, curH, tH, () -> {
+                curH = tH;
+                mainHandler.postDelayed(() -> {
+                    if (!isDrawing) return;
+                    moveThumb(left, trackW, yS, curS, tS, () -> {
+                        curS = tS;
+                        mainHandler.postDelayed(() -> {
+                            if (!isDrawing) return;
+                            moveThumb(left, trackW, yV, curV, tV, () -> { curV = tV; done.run(); });
+                        }, 180L);
+                    });
+                }, 180L);
+            });
+        }, 300L);
     }
 
+    /** Kéo núm trượt từ vị trí đang nhớ tới vị trí mới (phải bắt đầu đúng chỗ núm đang đứng). */
+    private void moveThumb(float left, float trackW, float y, float fromFrac, float toFrac, Runnable done) {
+        float fx = left + fromFrac * trackW, tx = left + toFrac * trackW;
+        if (Math.abs(tx - fx) < 2f) { done.run(); return; }
+        slide(fx, tx, y, done);
+    }
+
+    private float clampX(float x) { return Math.max(1f, Math.min(screenW - 1f, x)); }
+    private float clampY(float y) { return Math.max(1f, Math.min(screenH - 1f, y)); }
+
     private void slide(float fx, float tx, float y, Runnable done) {
-        Path p = new Path(); p.moveTo(fx, y); p.lineTo(tx, y);
-        dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 90L)).build(),
+        Path p = new Path();
+        p.moveTo(clampX(fx), clampY(y)); p.lineTo(clampX(tx), clampY(y));
+        long dur = 200L + (long) (Math.abs(tx - fx) * 0.6f);
+        boolean ok = dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, dur)).build(),
             new GestureResultCallback() {
                 public void onCompleted(GestureDescription g) { if (done != null) done.run(); }
                 public void onCancelled(GestureDescription g) { isDrawing = false; mainHandler.post(() -> setPassThrough(false)); }
             }, null);
+        if (!ok) failGesture();
     }
 
     private void tap(float x, float y, Runnable done) {
-        Path p = new Path(); p.moveTo(x, y); p.lineTo(x + 1f, y + 1f);
-        dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 40L)).build(),
+        Path p = new Path();
+        p.moveTo(clampX(x), clampY(y)); p.lineTo(clampX(x) + 1f, clampY(y) + 1f);
+        boolean ok = dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 60L)).build(),
             new GestureResultCallback() {
                 public void onCompleted(GestureDescription g) { if (done != null) done.run(); }
                 public void onCancelled(GestureDescription g) { isDrawing = false; mainHandler.post(() -> setPassThrough(false)); }
             }, null);
+        if (!ok) failGesture();
+    }
+
+    private void failGesture() {
+        isDrawing = false;
+        mainHandler.post(() -> { hidePickUi(); setPassThrough(false); txtOverlayStatus.setText("Không gửi được thao tác chạm. Kiểm tra lại quyền Trợ năng."); });
     }
 
     private PointF centerOf(View v) {
@@ -204,24 +300,42 @@ public class AutoDrawService extends AccessibilityService {
         if (!isDrawing) { mainHandler.post(() -> setPassThrough(false)); return; }
         List<List<PointF>> strokes = layers.get(lIdx).strokes;
         if (sIdx >= strokes.size()) {
-            mainHandler.postDelayed(() -> processLayer(layers, lIdx + 1, ox, oy, dw, dh), 120L);
+            mainHandler.postDelayed(() -> processLayer(layers, lIdx + 1, ox, oy, dw, dh), 150L);
             return;
         }
+        if (sIdx % 12 == 0) {
+            final int total = strokes.size();
+            mainHandler.post(() -> txtOverlayStatus.setText("Đang vẽ màu " + (lIdx + 1) + "/" + layers.size() + " - nét " + (sIdx + 1) + "/" + total));
+        }
         List<PointF> st = strokes.get(sIdx);
-        if (st.isEmpty()) { drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh); return; }
+        if (st.isEmpty()) { mainHandler.post(() -> drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh)); return; }
+
         Path path = new Path();
         PointF f = st.get(0);
-        path.moveTo(ox + f.x * dw, oy + f.y * dh);
-        if (st.size() == 1) path.lineTo(ox + f.x * dw + 0.5f, oy + f.y * dh + 0.5f);
-        else for (int i = 1; i < st.size(); i++) path.lineTo(ox + st.get(i).x * dw, oy + st.get(i).y * dh);
+        float px = clampX(ox + f.x * dw), py = clampY(oy + f.y * dh), length = 0f;
+        path.moveTo(px, py);
+        for (int i = 1; i < st.size(); i++) {
+            float nx = clampX(ox + st.get(i).x * dw), ny = clampY(oy + st.get(i).y * dh);
+            length += (float) Math.hypot(nx - px, ny - py);
+            path.lineTo(nx, ny);
+            px = nx; py = ny;
+        }
+        if (length < 0.5f) path.lineTo(px + 0.5f, py + 0.5f);
 
+        // Thời gian tỉ lệ với độ dài nét để tay "vẽ" đều, không bị cắt góc.
         long base = DrawRepository.getStrokeDurationMs();
-        long dur = Math.min(2500L, Math.max(base, st.size() * (base / 3L + 4L)));
-        dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0, dur)).build(),
-            new GestureResultCallback() {
-                public void onCompleted(GestureDescription g) { mainHandler.postDelayed(() -> drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh), 6L); }
-                public void onCancelled(GestureDescription g) { isDrawing = false; mainHandler.post(() -> setPassThrough(false)); }
-            }, null);
+        long dur = (long) Math.max((float) base, Math.min(30000f, length * base / 40f));
+        boolean ok;
+        try {
+            ok = dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0, dur)).build(),
+                new GestureResultCallback() {
+                    public void onCompleted(GestureDescription g) { mainHandler.postDelayed(() -> drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh), 8L); }
+                    public void onCancelled(GestureDescription g) { isDrawing = false; mainHandler.post(() -> setPassThrough(false)); }
+                }, null);
+        } catch (Exception e) {
+            ok = false;
+        }
+        if (!ok) mainHandler.post(() -> drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh));  // bỏ qua nét lỗi
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {}

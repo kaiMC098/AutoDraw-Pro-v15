@@ -6,7 +6,7 @@ public class DrawRepository {
     private static List<ColorLayer> colorLayers = new ArrayList<>();
     private static long strokeDurationMs = 22L;
     private static float aspectRatio = 1.0f;
-    private static boolean autoHsvBuilda = true;
+    private static boolean autoHsvBuilda = false;
 
     public static synchronized void setLayers(List<ColorLayer> layers, float ratio) {
         colorLayers = layers != null ? layers : new ArrayList<>();
