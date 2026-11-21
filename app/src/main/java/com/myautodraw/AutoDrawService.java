@@ -322,8 +322,7 @@ public class AutoDrawService extends AccessibilityService {
         mainHandler.post(() -> {
             setPassThrough(true);
             viewColorPreview.setBackgroundColor(layer.color);
-            txtPickColorCode.setText(layer.getHexString() + "
-H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
+            txtPickColorCode.setText(layer.getHexString() + "\nH:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
             layoutManualPickBar.setVisibility(View.VISIBLE);
             txtOverlayStatus.setText("Bước chọn màu " + (idx + 1) + "/" + total + ": Hãy chọn màu như ô mẫu trên Builda rồi bấm [Vẽ tiếp ▶]");
         });

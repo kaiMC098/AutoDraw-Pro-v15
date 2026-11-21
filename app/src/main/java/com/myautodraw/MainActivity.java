@@ -232,9 +232,7 @@ public class MainActivity extends AppCompatActivity {
             sw.setLayoutParams(lp);
             sw.setGravity(android.view.Gravity.CENTER);
             sw.setTextSize(10f);
-            sw.setText(layer.enabled ? ("#" + (i + 1) + "
-✓") : ("#" + (i + 1) + "
-Tắt"));
+            sw.setText(layer.enabled ? ("#" + (i + 1) + "\n✓") : ("#" + (i + 1) + "\nTắt"));
             int br = (Color.red(layer.color) * 299 + Color.green(layer.color) * 587 + Color.blue(layer.color) * 114) / 1000;
             sw.setTextColor(br > 130 ? Color.BLACK : Color.WHITE);
             GradientDrawable bg = new GradientDrawable();
