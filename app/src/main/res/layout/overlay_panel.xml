@@ -1,102 +1,18 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:background="#EE1E293B"
-    android:elevation="10dp"
-    android:orientation="vertical"
-    android:padding="6dp">
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-        <TextView
-            android:id="@+id/btnDragHandle"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:gravity="center"
-            android:paddingHorizontal="6dp"
-            android:text="✥"
-            android:textColor="#38BDF8"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-        <Button
-            android:id="@+id/btnToggleMarkers"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:layout_marginStart="3dp"
-            android:backgroundTint="#475569"
-            android:minWidth="0dp"
-            android:paddingHorizontal="8dp"
-            android:text="Khung"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp" />
-        <Button
-            android:id="@+id/btnColorModeSwitch"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:layout_marginStart="3dp"
-            android:backgroundTint="#8B5CF6"
-            android:minWidth="0dp"
-            android:paddingHorizontal="8dp"
-            android:text="Màu:Tay"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp" />
-        <Button
-            android:id="@+id/btnStartDraw"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:layout_marginStart="3dp"
-            android:backgroundTint="#10B981"
-            android:minWidth="0dp"
-            android:paddingHorizontal="10dp"
-            android:text="Vẽ"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp" />
-        <Button
-            android:id="@+id/btnStopDraw"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:layout_marginStart="3dp"
-            android:backgroundTint="#EF4444"
-            android:minWidth="0dp"
-            android:paddingHorizontal="8dp"
-            android:text="Dừng"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp" />
-    </LinearLayout>
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-        <View
-            android:id="@+id/viewColorPreview"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:visibility="gone" />
-        <Button
-            android:id="@+id/btnContinueDraw"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:layout_marginStart="6dp"
-            android:backgroundTint="#2563EB"
-            android:minWidth="0dp"
-            android:paddingHorizontal="14dp"
-            android:text="Đã chọn màu - Tiếp"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp"
-            android:visibility="gone" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/txtOverlayStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:maxWidth="300dp"
-        android:text="Đặt [Khung vẽ] lên Builda rồi bấm Vẽ. Mỗi màu sẽ dừng để bạn chọn màu, xong bấm Tiếp."
-        android:textColor="#CBD5E1"
-        android:textSize="10sp" />
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="wrap_content" android:layout_height="wrap_content" android:background="#F2161B26" android:elevation="12dp" android:orientation="vertical" android:padding="7dp">
+<!--  Hàng 1: Thanh công cụ điều khiển chính  -->
+<LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+<TextView android:id="@+id/btnDragHandle" android:layout_width="wrap_content" android:layout_height="34dp" android:gravity="center" android:paddingHorizontal="6dp" android:text="✥" android:textColor="#38BDF8" android:textSize="18sp" android:textStyle="bold"/>
+<Button android:id="@+id/btnToggleMarkers" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="3dp" android:backgroundTint="#475569" android:minWidth="0dp" android:paddingHorizontal="8dp" android:text="Khung" android:textColor="#FFFFFF" android:textSize="11sp"/>
+<Button android:id="@+id/btnColorModeSwitch" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="3dp" android:backgroundTint="#8B5CF6" android:minWidth="0dp" android:paddingHorizontal="8dp" android:text="Màu:Tay" android:textColor="#FFFFFF" android:textSize="11sp"/>
+<Button android:id="@+id/btnStartDraw" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="3dp" android:backgroundTint="#10B981" android:minWidth="0dp" android:paddingHorizontal="10dp" android:text="Vẽ" android:textColor="#FFFFFF" android:textSize="11sp"/>
+<Button android:id="@+id/btnStopDraw" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="3dp" android:backgroundTint="#EF4444" android:minWidth="0dp" android:paddingHorizontal="8dp" android:text="Dừng" android:textColor="#FFFFFF" android:textSize="11sp"/>
+</LinearLayout>
+<!--  Hàng 2: Khu vực thao tác khi chọn màu thủ công hoặc hiệu chỉnh nhanh  -->
+<LinearLayout android:id="@+id/layoutManualPickBar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:background="#232A3B" android:gravity="center_vertical" android:orientation="horizontal" android:padding="5dp" android:visibility="gone">
+<View android:id="@+id/viewColorPreview" android:layout_width="34dp" android:layout_height="34dp" android:background="#FFFFFF"/>
+<TextView android:id="@+id/txtPickColorCode" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="6dp" android:text="#FFFFFF H0 S0 V100" android:textColor="#F8FAFC" android:textSize="10sp" android:textStyle="bold"/>
+<Button android:id="@+id/btnSkipColor" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="6dp" android:backgroundTint="#64748B" android:minWidth="0dp" android:paddingHorizontal="8dp" android:text="Bỏ qua" android:textColor="#FFFFFF" android:textSize="11sp"/>
+<Button android:id="@+id/btnContinueDraw" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:backgroundTint="#2563EB" android:minWidth="0dp" android:paddingHorizontal="10dp" android:text="Vẽ tiếp ▶" android:textColor="#FFFFFF" android:textSize="11sp"/>
+</LinearLayout>
+<TextView android:id="@+id/txtOverlayStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:maxWidth="310dp" android:text="Màu:Tay — Đặt [Khung vẽ] lên giấy vẽ rồi bấm Vẽ." android:textColor="#CBD5E1" android:textSize="10sp"/>
 </LinearLayout>
