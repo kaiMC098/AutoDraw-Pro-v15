@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bgDark"
+    android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="14dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="MyAutoDraw Color Pro"
+            android:textColor="@color/textLight"
+            android:textSize="21sp"
+            android:textStyle="bold" />
+        <TextView
+            android:id="@+id/txtInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@color/cardDark"
+            android:padding="10dp"
+            android:text="1. Chọn ảnh màu cần vẽ.&#10;2. Chọn phần màu &amp; chỉnh H-S-V nếu cần.&#10;3. Bật Overlay &amp; Trợ năng để vẽ trên Builda."
+            android:textColor="@color/textMuted"
+            android:textSize="12sp" />
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:layout_marginTop="10dp"
+            android:background="@color/cardDark"
+            android:padding="6dp">
+            <ImageView
+                android:id="@+id/imgBackground"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0.12"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/imgPreview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#FFFFFF"
+                android:scaleType="fitCenter" />
+        </FrameLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@color/panelDark"
+            android:orientation="vertical"
+            android:padding="12dp">
+            <RadioGroup
+                android:id="@+id/rgMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <RadioButton
+                    android:id="@+id/rbColor"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1.15"
+                    android:checked="true"
+                    android:text="Đủ màu"
+                    android:textColor="@color/textLight"
+                    android:textSize="12sp" />
+                <RadioButton
+                    android:id="@+id/rbEdge"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Nét viền"
+                    android:textColor="@color/textLight"
+                    android:textSize="12sp" />
+                <RadioButton
+                    android:id="@+id/rbThreshold"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Mảng đậm"
+                    android:textColor="@color/textLight"
+                    android:textSize="12sp" />
+            </RadioGroup>
+            <CheckBox
+                android:id="@+id/cbIgnoreWhite"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Bỏ qua nền trắng / trong suốt"
+                android:textColor="@color/textLight"
+                android:textSize="12sp" />
+            <TextView
+                android:id="@+id/txtColorCountLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Số lượng màu tách từ ảnh: 8 màu"
+                android:textColor="@color/textLight"
+                android:textSize="12sp" />
+            <SeekBar
+                android:id="@+id/seekColorCount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="14"
+                android:progress="6" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Chọn phần màu (Bấm chọn để chỉnh HSV / Nhấn giữ để tắt):"
+                android:textColor="@color/textMuted"
+                android:textSize="11sp" />
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:scrollbars="none">
+                <LinearLayout
+                    android:id="@+id/layoutColorSwatches"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+            <LinearLayout
+                android:id="@+id/layoutHsvEditor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="#1C1E22"
+                android:orientation="vertical"
+                android:padding="10dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <View
+                        android:id="@+id/viewSelectedColorBox"
+                        android:layout_width="36dp"
+                        android:layout_height="24dp"
+                        android:background="#000000" />
+                    <TextView
+                        android:id="@+id/txtSelectedColorHex"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="Màu đang chọn: #000000"
+                        android:textColor="@color/textLight"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                    <CheckBox
+                        android:id="@+id/cbLayerEnabled"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Vẽ màu này"
+                        android:textColor="#10B981"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <TextView
+                        android:layout_width="20dp"
+                        android:layout_height="wrap_content"
+                        android:text="H"
+                        android:textColor="#94A3B8"
+                        android:textStyle="bold" />
+                    <SeekBar
+                        android:id="@+id/seekHue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:max="360"
+                        android:progress="0" />
+                    <TextView
+                        android:id="@+id/txtHueVal"
+                        android:layout_width="34dp"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:text="0"
+                        android:textColor="@color/textLight"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <TextView
+                        android:layout_width="20dp"
+                        android:layout_height="wrap_content"
+                        android:text="S"
+                        android:textColor="#94A3B8"
+                        android:textStyle="bold" />
+                    <SeekBar
+                        android:id="@+id/seekSat"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:max="100"
+                        android:progress="0" />
+                    <TextView
+                        android:id="@+id/txtSatVal"
+                        android:layout_width="34dp"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:text="0"
+                        android:textColor="@color/textLight"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <TextView
+                        android:layout_width="20dp"
+                        android:layout_height="wrap_content"
+                        android:text="V"
+                        android:textColor="#94A3B8"
+                        android:textStyle="bold" />
+                    <SeekBar
+                        android:id="@+id/seekVal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:max="100"
+                        android:progress="0" />
+                    <TextView
+                        android:id="@+id/txtValVal"
+                        android:layout_width="34dp"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:text="0"
+                        android:textColor="@color/textLight"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+            <TextView
+                android:id="@+id/txtThreshLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Độ chi tiết / Ngưỡng nét: 125"
+                android:textColor="@color/textLight"
+                android:textSize="12sp" />
+            <SeekBar
+                android:id="@+id/seekThresh"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="255"
+                android:progress="125" />
+            <TextView
+                android:id="@+id/txtSpeedLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Thời gian vẽ mỗi nét: 22ms"
+                android:textColor="@color/textLight"
+                android:textSize="12sp" />
+            <SeekBar
+                android:id="@+id/seekSpeed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="22" />
+        </LinearLayout>
+        <Button
+            android:id="@+id/btnLoad"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="10dp"
+            android:backgroundTint="@color/colorPrimary"
+            android:text="1. Chọn ảnh màu từ thư viện"
+            android:textColor="@color/textLight" />
+        <Button
+            android:id="@+id/btnPerm"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="6dp"
+            android:backgroundTint="#D97706"
+            android:text="2. Cấp quyền hiển thị nổi (Overlay)"
+            android:textColor="@color/textLight" />
+        <Button
+            android:id="@+id/btnService"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="6dp"
+            android:backgroundTint="@color/colorAccent"
+            android:text="3. Bật dịch vụ AutoDraw (Trợ năng)"
+            android:textColor="@color/textLight" />
+    </LinearLayout>
+</ScrollView>
