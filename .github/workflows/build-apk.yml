@@ -16,11 +16,15 @@ jobs:
       - name: Tải mã nguồn
         uses: actions/checkout@v4
 
-      - name: Kiểm tra cấu trúc dự án
+      - name: Chuẩn hóa vị trí thư mục dự án
         run: |
+          if [ ! -f "settings.gradle" ] && [ -f "AutoDraw-Pro-fixed/settings.gradle" ]; then
+            cp -rf AutoDraw-Pro-fixed/* .
+            cp -rf AutoDraw-Pro-fixed/.gitignore . 2>/dev/null || true
+          fi
           missing=0
           for f in settings.gradle build.gradle app/build.gradle app/src/main/AndroidManifest.xml app/src/main/java/com/myautodraw/MainActivity.java app/src/main/res/layout/activity_main.xml; do
-            if [ ! -f "$f" ]; then echo "::error::Thiếu file $f - hãy đẩy NỘI DUNG của thư mục dự án lên gốc repo (không đẩy cả thư mục bọc ngoài)"; missing=1; fi
+            if [ ! -f "$f" ]; then echo "::error::Thiếu file $f"; missing=1; fi
           done
           exit $missing
 
@@ -49,7 +53,6 @@ jobs:
             grep -n -E "What went wrong|error:|AAPT|Execution failed|Caused by|FAILURE" -A6 build.log | head -100
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -E "error:|What went wrong" -A3 build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done
 
       - name: Đổi tên APK
         run: cp app/build/outputs/apk/debug/app-debug.apk MyAutoDraw-Color-Pro.apk
@@ -62,20 +65,9 @@ jobs:
           if-no-files-found: error
 
       - name: Đăng APK lên mục Releases
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "build-${{ github.run_number }}" MyAutoDraw-Color-Pro.apk \
-            --title "MyAutoDraw Color Pro - build ${{ github.run_number }}" \
-            --notes "APK debug tự động build từ commit ${{ github.sha }}"
-
-      - name: Lưu báo cáo lỗi (nếu build thất bại)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-reports
-          path: |
-            build.log
-            app/build/reports
-            app/build/outputs/logs
-          if-no-files-found: ignore
+          TAG="build-${{ github.run_number }}-${{ github.run_attempt }}"
+          gh release create "$TAG" MyAutoDraw-Color-Pro.apk             --title "MyAutoDraw Color Pro - $TAG"             --notes "APK debug tự động build từ commit ${{ github.sha }}"
