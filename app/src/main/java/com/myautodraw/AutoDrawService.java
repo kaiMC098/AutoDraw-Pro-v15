@@ -322,7 +322,8 @@ public class AutoDrawService extends AccessibilityService {
         mainHandler.post(() -> {
             setPassThrough(true);
             viewColorPreview.setBackgroundColor(layer.color);
-            txtPickColorCode.setText(layer.getHexString() + "\nH:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
+            txtPickColorCode.setText(layer.getHexString() + "
+H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
             layoutManualPickBar.setVisibility(View.VISIBLE);
             txtOverlayStatus.setText("Bước chọn màu " + (idx + 1) + "/" + total + ": Hãy chọn màu như ô mẫu trên Builda rồi bấm [Vẽ tiếp ▶]");
         });
@@ -461,7 +462,7 @@ public class AutoDrawService extends AccessibilityService {
         if (length < 0.5f) path.lineTo(px + 0.5f, py + 0.5f);
 
         long base = DrawRepository.getStrokeDurationMs();
-        long dur = (long) Math.max((float) base, Math.min(30000f, length * base / 40f));
+        long dur = (long) Math.max((float) base + 12L, Math.min(30000f, length * (base / 28f)));
         boolean ok;
         try {
             ok = dispatchGesture(
@@ -632,4 +633,4 @@ public class AutoDrawService extends AccessibilityService {
             return super.onTouchEvent(e);
         }
     }
-                                                                                                    }
+}
