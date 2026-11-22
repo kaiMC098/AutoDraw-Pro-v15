@@ -4,14 +4,14 @@ plugins {
 
 android {
     namespace 'com.myautodraw'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.myautodraw"
         minSdk 24
         targetSdk 34
-        versionCode 3
-        versionName "3.0-Color"
+        versionCode 4
+        versionName "3.5-HD"
     }
 
     buildTypes {
