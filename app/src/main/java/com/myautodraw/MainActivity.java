@@ -190,7 +190,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** Tự động kiểm tra và bật Cửa sổ nổi của app khi người dùng mở ứng dụng */
     private void triggerAutoFloatingWindow() {
         if (!Settings.canDrawOverlays(this)) {
             if (!autoPromptedOverlay) {
@@ -263,6 +262,7 @@ public class MainActivity extends AppCompatActivity {
         layoutColorSwatches.removeAllViews();
         List<ColorLayer> layers = DrawRepository.getLayers();
         if (layers == null) return;
+        final String nl = String.valueOf((char) 10);
         for (int i = 0; i < layers.size(); i++) {
             final ColorLayer layer = layers.get(i);
             TextView sw = new TextView(this);
@@ -271,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
             sw.setLayoutParams(lp);
             sw.setGravity(android.view.Gravity.CENTER);
             sw.setTextSize(10f);
-            sw.setText(layer.enabled ? ("#" + (i + 1) + "\n✓") : ("#" + (i + 1) + "\nTắt"));
+            sw.setText(layer.enabled ? ("#" + (i + 1) + nl + "✓") : ("#" + (i + 1) + nl + "Tắt"));
             int br = (Color.red(layer.color) * 299 + Color.green(layer.color) * 587 + Color.blue(layer.color) * 114) / 1000;
             sw.setTextColor(br > 130 ? Color.BLACK : Color.WHITE);
             GradientDrawable bg = new GradientDrawable();
@@ -293,4 +293,4 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() { super.onDestroy(); executor.shutdownNow(); }
-    }
+}
