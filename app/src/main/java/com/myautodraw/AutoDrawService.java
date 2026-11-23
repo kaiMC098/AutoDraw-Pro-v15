@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.content.Context;
 import android.graphics.*;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -12,6 +13,7 @@ import android.util.DisplayMetrics;
 import android.view.*;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -23,7 +25,7 @@ public class AutoDrawService extends AccessibilityService {
     private WindowManager windowManager;
     private View panelView;
     private WindowManager.LayoutParams panelParams;
-    private TextView txtOverlayStatus, txtPickColorCode;
+    private TextView txtOverlayStatus, txtPickColorCode, btnMinimizePanel;
     private LinearLayout layoutManualPickBar, layoutOverlayBody;
     private TargetBoxView targetBoxView;
     private WindowManager.LayoutParams boxParams;
@@ -34,10 +36,11 @@ public class AutoDrawService extends AccessibilityService {
     private MarkerDotView brushBtnMarker;
     private WindowManager.LayoutParams brushBtnParams;
 
+    private boolean overlaysAttached = false;
     private boolean markersVisible = true;
     private boolean panelCollapsed = false;
     private volatile boolean isDrawing = false;
-    private Button btnHsv, btnContinue, btnSkipColor, btnMinimizePanel;
+    private Button btnHsv, btnContinue, btnSkipColor;
     private View viewColorPreview;
     private Runnable resumeAction;
     private Runnable skipAction;
@@ -48,22 +51,31 @@ public class AutoDrawService extends AccessibilityService {
         return instance != null;
     }
 
+    public static boolean hasVisibleMenu() {
+        return instance != null && instance.overlaysAttached && instance.panelView != null;
+    }
+
     public static void ensureOverlaysVisible() {
         if (instance != null) {
             instance.mainHandler.post(() -> instance.restoreAllOverlays());
         }
     }
 
-    public void restoreAllOverlays() {
-        if (windowManager == null) {
-            windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+    public static void forceReinitOverlays() {
+        if (instance != null) {
+            instance.mainHandler.post(() -> {
+                instance.cleanupViews();
+                instance.initOverlays();
+            });
         }
-        if (!Settings.canDrawOverlays(this)) return;
+    }
+
+    public void restoreAllOverlays() {
+        if (!overlaysAttached || panelView == null) {
+            initOverlays();
+            return;
+        }
         try {
-            if (panelView == null) {
-                initOverlays();
-                return;
-            }
             panelView.setVisibility(View.VISIBLE);
             panelCollapsed = false;
             if (layoutOverlayBody != null) layoutOverlayBody.setVisibility(View.VISIBLE);
@@ -72,162 +84,212 @@ public class AutoDrawService extends AccessibilityService {
             updateModeButtonUi();
             applyMarkerVisibility();
             setPassThrough(false);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            cleanupViews();
+            initOverlays();
+        }
     }
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
         instance = this;
-        if (!Settings.canDrawOverlays(this)) return;
-        initOverlays();
+        mainHandler.post(this::initOverlays);
+    }
+
+    private int resolveOverlayWindowType() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            return WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;
+        }
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
     }
 
     private void initOverlays() {
-        if (panelView != null) return;
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        screenW = dm.widthPixels;
-        screenH = dm.heightPixels;
+        if (overlaysAttached) return;
+        try {
+            windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            screenW = dm.widthPixels;
+            screenH = dm.heightPixels;
 
-        if (!DrawRepository.hasSavedPositions) {
-            DrawRepository.boxW = (int) (screenW * 0.72f);
-            DrawRepository.boxH = DrawRepository.boxW;
-            DrawRepository.boxX = (screenW - DrawRepository.boxW) / 2;
-            DrawRepository.boxY = (int) (screenH * 0.24f);
+            if (!DrawRepository.hasSavedPositions) {
+                DrawRepository.boxW = (int) (screenW * 0.72f);
+                DrawRepository.boxH = DrawRepository.boxW;
+                DrawRepository.boxX = (screenW - DrawRepository.boxW) / 2;
+                DrawRepository.boxY = (int) (screenH * 0.24f);
 
-            DrawRepository.hsvW = (int) (screenW * 0.44f);
-            DrawRepository.hsvH = (int) (screenH * 0.11f);
-            DrawRepository.hsvX = (int) (screenW * 0.26f);
-            DrawRepository.hsvY = (int) (screenH * 0.36f);
+                DrawRepository.hsvW = (int) (screenW * 0.44f);
+                DrawRepository.hsvH = (int) (screenH * 0.11f);
+                DrawRepository.hsvX = (int) (screenW * 0.26f);
+                DrawRepository.hsvY = (int) (screenH * 0.36f);
 
-            DrawRepository.colorBtnX = (int) (screenW * 0.69f);
-            DrawRepository.colorBtnY = (int) (screenH * 0.84f);
+                DrawRepository.colorBtnX = (int) (screenW * 0.69f);
+                DrawRepository.colorBtnY = (int) (screenH * 0.84f);
 
-            DrawRepository.brushBtnX = (int) (screenW * 0.11f);
-            DrawRepository.brushBtnY = (int) (screenH * 0.84f);
-            DrawRepository.hasSavedPositions = true;
-        }
-
-        int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
-
-        targetBoxView = new TargetBoxView(this);
-        boxParams = createParams(DrawRepository.boxW, DrawRepository.boxH, DrawRepository.boxX, DrawRepository.boxY, type);
-        windowManager.addView(targetBoxView, boxParams);
-
-        hsvBoxView = new HsvSlidersBoxView(this);
-        hsvBoxParams = createParams(DrawRepository.hsvW, DrawRepository.hsvH, DrawRepository.hsvX, DrawRepository.hsvY, type);
-        windowManager.addView(hsvBoxView, hsvBoxParams);
-
-        colorBtnMarker = new MarkerDotView(this, "Màu", Color.parseColor("#EC4899"));
-        colorBtnParams = createParams(96, 96, DrawRepository.colorBtnX, DrawRepository.colorBtnY, type);
-        windowManager.addView(colorBtnMarker, colorBtnParams);
-
-        brushBtnMarker = new MarkerDotView(this, "Bút", Color.parseColor("#2563EB"));
-        brushBtnParams = createParams(96, 96, DrawRepository.brushBtnX, DrawRepository.brushBtnY, type);
-        windowManager.addView(brushBtnMarker, brushBtnParams);
-
-        panelView = LayoutInflater.from(this).inflate(R.layout.overlay_panel, null);
-        panelParams = createParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, 36, 90, type);
-        windowManager.addView(panelView, panelParams);
-
-        View dragHeader = panelView.findViewById(R.id.btnDragHandle);
-        layoutOverlayBody = panelView.findViewById(R.id.layoutOverlayBody);
-        btnMinimizePanel = panelView.findViewById(R.id.btnMinimizePanel);
-        Button btnToggle = panelView.findViewById(R.id.btnToggleMarkers);
-        Button btnStart = panelView.findViewById(R.id.btnStartDraw);
-        Button btnStop = panelView.findViewById(R.id.btnStopDraw);
-        txtOverlayStatus = panelView.findViewById(R.id.txtOverlayStatus);
-        layoutManualPickBar = panelView.findViewById(R.id.layoutManualPickBar);
-        txtPickColorCode = panelView.findViewById(R.id.txtPickColorCode);
-        btnHsv = panelView.findViewById(R.id.btnColorModeSwitch);
-        btnContinue = panelView.findViewById(R.id.btnContinueDraw);
-        btnSkipColor = panelView.findViewById(R.id.btnSkipColor);
-        viewColorPreview = panelView.findViewById(R.id.viewColorPreview);
-
-        dragHeader.setOnTouchListener(new View.OnTouchListener() {
-            int ix, iy; float tx, ty;
-            public boolean onTouch(View v, MotionEvent e) {
-                if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                    ix = panelParams.x; iy = panelParams.y;
-                    tx = e.getRawX(); ty = e.getRawY();
-                    return true;
-                }
-                if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                    panelParams.x = ix + (int) (e.getRawX() - tx);
-                    panelParams.y = iy + (int) (e.getRawY() - ty);
-                    windowManager.updateViewLayout(panelView, panelParams);
-                    return true;
-                }
-                return false;
+                DrawRepository.brushBtnX = (int) (screenW * 0.11f);
+                DrawRepository.brushBtnY = (int) (screenH * 0.84f);
+                DrawRepository.hasSavedPositions = true;
             }
-        });
 
-        btnMinimizePanel.setOnClickListener(v -> {
-            panelCollapsed = !panelCollapsed;
-            layoutOverlayBody.setVisibility(panelCollapsed ? View.GONE : View.VISIBLE);
-            btnMinimizePanel.setText(panelCollapsed ? "+" : "—");
-        });
+            int type = resolveOverlayWindowType();
+            Context themedCtx = new ContextThemeWrapper(this, R.style.AppTheme);
 
-        updateModeButtonUi();
-        applyMarkerVisibility();
+            targetBoxView = new TargetBoxView(themedCtx);
+            boxParams = createParams(DrawRepository.boxW, DrawRepository.boxH, DrawRepository.boxX, DrawRepository.boxY, type);
+            try {
+                windowManager.addView(targetBoxView, boxParams);
+            } catch (Exception firstErr) {
+                if (!Settings.canDrawOverlays(this)) {
+                    throw firstErr;
+                }
+                type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        : WindowManager.LayoutParams.TYPE_PHONE;
+                boxParams = createParams(DrawRepository.boxW, DrawRepository.boxH, DrawRepository.boxX, DrawRepository.boxY, type);
+                windowManager.addView(targetBoxView, boxParams);
+            }
 
-        btnToggle.setOnClickListener(v -> {
-            if (isDrawing) return;
-            markersVisible = !markersVisible;
-            applyMarkerVisibility();
-        });
+            hsvBoxView = new HsvSlidersBoxView(themedCtx);
+            hsvBoxParams = createParams(DrawRepository.hsvW, DrawRepository.hsvH, DrawRepository.hsvX, DrawRepository.hsvY, type);
+            windowManager.addView(hsvBoxView, hsvBoxParams);
 
-        btnHsv.setOnClickListener(v -> {
-            if (isDrawing) return;
-            boolean next = !DrawRepository.isAutoHsvBuilda();
-            DrawRepository.setAutoHsvBuilda(next);
-            markersVisible = true;
+            colorBtnMarker = new MarkerDotView(themedCtx, "Màu", Color.parseColor("#EC4899"));
+            colorBtnParams = createParams(96, 96, DrawRepository.colorBtnX, DrawRepository.colorBtnY, type);
+            windowManager.addView(colorBtnMarker, colorBtnParams);
+
+            brushBtnMarker = new MarkerDotView(themedCtx, "Bút", Color.parseColor("#2563EB"));
+            brushBtnParams = createParams(96, 96, DrawRepository.brushBtnX, DrawRepository.brushBtnY, type);
+            windowManager.addView(brushBtnMarker, brushBtnParams);
+
+            View inflated = LayoutInflater.from(themedCtx).inflate(R.layout.overlay_panel, null);
+            panelParams = createParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, 36, 90, type);
+            windowManager.addView(inflated, panelParams);
+            panelView = inflated;
+            overlaysAttached = true;
+
+            try {
+                ImageView avatar = panelView.findViewById(R.id.imgOverlayAvatar);
+                Drawable appIcon = getPackageManager().getApplicationIcon(getPackageName());
+                if (avatar != null && appIcon != null) avatar.setImageDrawable(appIcon);
+            } catch (Exception ignored) {}
+
+            View dragHeader = panelView.findViewById(R.id.btnDragHandle);
+            layoutOverlayBody = panelView.findViewById(R.id.layoutOverlayBody);
+            btnMinimizePanel = panelView.findViewById(R.id.btnMinimizePanel);
+            Button btnToggle = panelView.findViewById(R.id.btnToggleMarkers);
+            Button btnStart = panelView.findViewById(R.id.btnStartDraw);
+            Button btnStop = panelView.findViewById(R.id.btnStopDraw);
+            txtOverlayStatus = panelView.findViewById(R.id.txtOverlayStatus);
+            layoutManualPickBar = panelView.findViewById(R.id.layoutManualPickBar);
+            txtPickColorCode = panelView.findViewById(R.id.txtPickColorCode);
+            btnHsv = panelView.findViewById(R.id.btnColorModeSwitch);
+            btnContinue = panelView.findViewById(R.id.btnContinueDraw);
+            btnSkipColor = panelView.findViewById(R.id.btnSkipColor);
+            viewColorPreview = panelView.findViewById(R.id.viewColorPreview);
+
+            dragHeader.setOnTouchListener(new View.OnTouchListener() {
+                int ix, iy; float tx, ty;
+                public boolean onTouch(View v, MotionEvent e) {
+                    if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                        ix = panelParams.x; iy = panelParams.y;
+                        tx = e.getRawX(); ty = e.getRawY();
+                        return true;
+                    }
+                    if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                        panelParams.x = ix + (int) (e.getRawX() - tx);
+                        panelParams.y = iy + (int) (e.getRawY() - ty);
+                        windowManager.updateViewLayout(panelView, panelParams);
+                        return true;
+                    }
+                    return false;
+                }
+            });
+
+            btnMinimizePanel.setOnClickListener(v -> {
+                panelCollapsed = !panelCollapsed;
+                layoutOverlayBody.setVisibility(panelCollapsed ? View.GONE : View.VISIBLE);
+                btnMinimizePanel.setText(panelCollapsed ? "+" : "—");
+            });
+
             updateModeButtonUi();
             applyMarkerVisibility();
-        });
 
-        btnStart.setOnClickListener(v -> {
-            if (isDrawing) return;
-            List<ColorLayer> layers = DrawRepository.getEnabledLayers();
-            if (layers == null || layers.isEmpty()) {
-                Toast.makeText(this, "Chưa có ảnh! Hãy vào app chọn ảnh trước.", Toast.LENGTH_SHORT).show();
-                return;
+            btnToggle.setOnClickListener(v -> {
+                if (isDrawing) return;
+                markersVisible = !markersVisible;
+                applyMarkerVisibility();
+            });
+
+            btnHsv.setOnClickListener(v -> {
+                if (isDrawing) return;
+                boolean next = !DrawRepository.isAutoHsvBuilda();
+                DrawRepository.setAutoHsvBuilda(next);
+                markersVisible = true;
+                updateModeButtonUi();
+                applyMarkerVisibility();
+            });
+
+            btnStart.setOnClickListener(v -> {
+                if (isDrawing) return;
+                List<ColorLayer> layers = DrawRepository.getEnabledLayers();
+                if (layers == null || layers.isEmpty()) {
+                    Toast.makeText(this, "Chưa có ảnh! Hãy vào app chọn ảnh trước.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                startColorDrawing(layers);
+            });
+
+            btnContinue.setOnClickListener(v -> {
+                Runnable r = resumeAction;
+                if (r == null) return;
+                resumeAction = null;
+                skipAction = null;
+                hidePickUi();
+                txtOverlayStatus.setText("Đang vẽ từ trên xuống dưới (1px)...");
+                r.run();
+            });
+
+            btnSkipColor.setOnClickListener(v -> {
+                Runnable s = skipAction;
+                if (s == null) return;
+                resumeAction = null;
+                skipAction = null;
+                hidePickUi();
+                txtOverlayStatus.setText("Đã bỏ qua màu, chuyển màu kế...");
+                s.run();
+            });
+
+            btnStop.setOnClickListener(v -> {
+                isDrawing = false;
+                resumeAction = null;
+                skipAction = null;
+                hidePickUi();
+                setPassThrough(false);
+                applyMarkerVisibility();
+                txtOverlayStatus.setText("Đã dừng.");
+            });
+
+            Toast.makeText(this, "Đã bật Menu Vẽ Nổi v15 (@ellenjoe023)!", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            cleanupViews();
+            Toast.makeText(this, "Lỗi bật Menu Vẽ: " + e.getClass().getSimpleName() + " - " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void cleanupViews() {
+        overlaysAttached = false;
+        for (View v : new View[]{panelView, targetBoxView, hsvBoxView, colorBtnMarker, brushBtnMarker}) {
+            if (windowManager != null && v != null) {
+                try { windowManager.removeView(v); } catch (Exception ignored) {}
             }
-            startColorDrawing(layers);
-        });
-
-        btnContinue.setOnClickListener(v -> {
-            Runnable r = resumeAction;
-            if (r == null) return;
-            resumeAction = null;
-            skipAction = null;
-            hidePickUi();
-            txtOverlayStatus.setText("Đang vẽ từ trên xuống dưới (1px)...");
-            r.run();
-        });
-
-        btnSkipColor.setOnClickListener(v -> {
-            Runnable s = skipAction;
-            if (s == null) return;
-            resumeAction = null;
-            skipAction = null;
-            hidePickUi();
-            txtOverlayStatus.setText("Đã bỏ qua màu, chuyển màu kế...");
-            s.run();
-        });
-
-        btnStop.setOnClickListener(v -> {
-            isDrawing = false;
-            resumeAction = null;
-            skipAction = null;
-            hidePickUi();
-            setPassThrough(false);
-            applyMarkerVisibility();
-            txtOverlayStatus.setText("Đã dừng.");
-        });
+        }
+        panelView = null;
+        targetBoxView = null;
+        hsvBoxView = null;
+        colorBtnMarker = null;
+        brushBtnMarker = null;
     }
 
     private void updateModeButtonUi() {
@@ -256,7 +318,7 @@ public class AutoDrawService extends AccessibilityService {
     private WindowManager.LayoutParams createParams(int w, int h, int x, int y, int type) {
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 w, h, type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
         );
         p.gravity = Gravity.TOP | Gravity.START;
@@ -405,80 +467,4 @@ public class AutoDrawService extends AccessibilityService {
         boolean ok = dispatchGesture(
                 new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, dur)).build(),
                 new GestureResultCallback() {
-                    public void onCompleted(GestureDescription g) { if (done != null) done.run(); }
-                    public void onCancelled(GestureDescription g) { isDrawing = false; mainHandler.post(() -> setPassThrough(false)); }
-                }, null
-        );
-        if (!ok) failGesture();
-    }
-
-    private void tap(float x, float y, Runnable done) {
-        Path p = new Path();
-        p.moveTo(clampX(x), clampY(y));
-        p.lineTo(clampX(x) + 1f, clampY(y) + 1f);
-        boolean ok = dispatchGesture(
-                new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 60L)).build(),
-                new GestureResultCallback() {
-                    public void onCompleted(GestureDescription g) { if (done != null) done.run(); }
-                    public void onCancelled(GestureDescription g) { isDrawing = false; mainHandler.post(() -> setPassThrough(false)); }
-                }, null
-        );
-        if (!ok) failGesture();
-    }
-
-    private void failGesture() {
-        isDrawing = false;
-        mainHandler.post(() -> {
-            hidePickUi();
-            setPassThrough(false);
-            txtOverlayStatus.setText("Lỗi gửi thao tác chạm. Hãy bật lại quyền Trợ năng.");
-        });
-    }
-
-    private PointF centerOf(View v) {
-        int[] loc = new int[2];
-        v.getLocationOnScreen(loc);
-        return new PointF(loc[0] + v.getWidth() / 2f, loc[1] + v.getHeight() / 2f);
-    }
-
-    private void drawStroke(List<ColorLayer> layers, int lIdx, int sIdx, int retryCount, float ox, float oy, float dw, float dh) {
-        if (!isDrawing) {
-            mainHandler.post(() -> setPassThrough(false));
-            return;
-        }
-        List<List<PointF>> strokes = layers.get(lIdx).strokes;
-        if (sIdx >= strokes.size()) {
-            mainHandler.postDelayed(() -> processLayer(layers, lIdx + 1, ox, oy, dw, dh), 160L);
-            return;
-        }
-        if (sIdx % 12 == 0) {
-            final int total = strokes.size();
-            mainHandler.post(() -> txtOverlayStatus.setText(
-                    "Màu " + (lIdx + 1) + "/" + layers.size() + " — hàng nét " + (sIdx + 1) + "/" + total
-            ));
-        }
-        List<PointF> st = strokes.get(sIdx);
-        if (st.isEmpty()) {
-            mainHandler.post(() -> drawStroke(layers, lIdx, sIdx + 1, 0, ox, oy, dw, dh));
-            return;
-        }
-
-        Path path = new Path();
-        PointF f = st.get(0);
-        float px = clampX(ox + f.x * dw), py = clampY(oy + f.y * dh), length = 0f;
-        path.moveTo(px, py);
-        for (int i = 1; i < st.size(); i++) {
-            float nx = clampX(ox + st.get(i).x * dw), ny = clampY(oy + st.get(i).y * dh);
-            length += (float) Math.hypot(nx - px, ny - py);
-            path.lineTo(nx, ny);
-            px = nx;
-            py = ny;
-        }
-        if (length < 0.8f) path.lineTo(px + 0.8f, py);
-
-        long base = DrawRepository.getStrokeDurationMs();
-        long dur = (long) Math.max((float) base, Math.min(12000f, base + length * (base / 45f)));
-        boolean ok;
-        try {
-            ok = dispatchGesture(
-     
+                    public void onCompleted(GestureDescription g) { if (done !
