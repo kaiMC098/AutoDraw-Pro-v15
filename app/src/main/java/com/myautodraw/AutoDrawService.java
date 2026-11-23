@@ -475,4 +475,4 @@ public class AutoDrawService extends AccessibilityService {
                             if (!isDrawing) {
                                 mainHandler.post(() -> setPassThrough(false));
                             } else if (retryCount < 6) {
-                                mainHandler.postDelayed(() -> drawStroke(layers, lIdx, sIdx, retryCount + 1, ox, oy, dw, dh), 35L)
+                                mainHandler.postDelayed(() -> drawStroke(layers, lIdx, sIdx, retryCount + 1, ox, oy, dw, dh), 35L);
