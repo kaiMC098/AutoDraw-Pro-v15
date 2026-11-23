@@ -1,4 +1,5 @@
 package com.myautodraw;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
@@ -6,6 +7,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -33,7 +35,6 @@ public class MainActivity extends AppCompatActivity {
     private Bitmap originalBitmap;
     private ColorLayer selectedLayer;
     private boolean updatingHsvUi = false;
-    private boolean autoPromptedOverlay = false;
     private boolean autoPromptedAccessibility = false;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -105,17 +106,20 @@ public class MainActivity extends AppCompatActivity {
         btnPerm.setOnClickListener(v -> {
             if (!Settings.canDrawOverlays(this)) {
                 startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+            } else if (AutoDrawService.isRunning()) {
+                AutoDrawService.forceReinitOverlays();
+                Toast.makeText(this, "Đã bật lại Menu Vẽ Nổi!", Toast.LENGTH_SHORT).show();
             } else {
-                AutoDrawService.ensureOverlaysVisible();
-                Toast.makeText(this, "Đã cấp quyền Cửa sổ nổi!", Toast.LENGTH_SHORT).show();
+                openAccessibilityGuideDialog();
             }
         });
         btnService.setOnClickListener(v -> {
-            if (!Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "Vui lòng cấp quyền Overlay trước!", Toast.LENGTH_SHORT).show();
-                return;
+            if (AutoDrawService.isRunning()) {
+                AutoDrawService.forceReinitOverlays();
+                Toast.makeText(this, "Đang bật lại Menu Vẽ Nổi...", Toast.LENGTH_SHORT).show();
+            } else {
+                openAccessibilityGuideDialog();
             }
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
         });
 
         seekColorCount.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -168,8 +172,8 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         if (cbAutoFloating.isChecked()) {
             triggerAutoFloatingWindow();
-        } else {
-            AutoDrawService.ensureOverlaysVisible();
+        } else if (AutoDrawService.isRunning()) {
+            AutoDrawService.forceReinitOverlays();
         }
 
         if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
@@ -182,30 +186,37 @@ public class MainActivity extends AppCompatActivity {
         boolean running = AutoDrawService.isRunning();
         btnPerm.setText(overlayOk ? "2. Cửa sổ nổi (Overlay): ĐÃ BẬT ✓" : "2. Cấp quyền hiển thị nổi (Overlay)");
         if (running) {
-            btnService.setText("3. Dịch vụ AutoDraw v15: ĐANG CHẠY ✓");
+            btnService.setText("3. Menu Vẽ Nổi v15: ĐANG HIỆN ✓ (Bấm để làm mới)");
         } else if (settingEnabled) {
-            btnService.setText("3. Bị hệ thống ngắt nền — Bấm để bật lại");
+            btnService.setText("3. Dịch vụ bị ngắt — Bấm để tắt/bật lại");
         } else {
-            btnService.setText("3. Bật dịch vụ AutoDraw (Trợ năng)");
+            btnService.setText("3. Bật Menu Vẽ Nổi (Trợ năng)");
         }
     }
 
     private void triggerAutoFloatingWindow() {
-        if (!Settings.canDrawOverlays(this)) {
-            if (!autoPromptedOverlay) {
-                autoPromptedOverlay = true;
-                Toast.makeText(this, "Đang tự động mở cấp quyền Cửa sổ nổi...", Toast.LENGTH_SHORT).show();
-                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
-            }
-            return;
-        }
         if (AutoDrawService.isRunning()) {
             AutoDrawService.ensureOverlaysVisible();
-        } else if (!autoPromptedAccessibility) {
-            autoPromptedAccessibility = true;
-            Toast.makeText(this, "Tự động mở Trợ năng để kích hoạt Cửa sổ nổi...", Toast.LENGTH_SHORT).show();
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            return;
         }
+        if (!autoPromptedAccessibility) {
+            autoPromptedAccessibility = true;
+            openAccessibilityGuideDialog();
+        }
+    }
+
+    private void openAccessibilityGuideDialog() {
+        final String nl = String.valueOf((char) 10);
+        String msg = "Để Menu Vẽ Nổi v15 hiện lên và tự vẽ trên Builda:" + nl + nl
+                + "1. Bấm [Mở Trợ năng] bên dưới -> Ứng dụng đã tải xuống -> MyAutoDraw Pro v15 -> Bật công tắc." + nl + nl
+                + "2. Nếu công tắc bị mờ (Android 13-15 báo Cài đặt bị hạn chế): bấm [Mở Thông tin App] -> dấu 3 chấm (⋮) góc trên -> Cho phép cài đặt bị hạn chế, rồi quay lại bật Trợ năng.";
+        new AlertDialog.Builder(this)
+                .setTitle("Kích hoạt Menu Vẽ Nổi v15")
+                .setMessage(msg)
+                .setPositiveButton("Mở Trợ năng", (d, w) -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
+                .setNeutralButton("Mở Thông tin App", (d, w) -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))))
+                .setNegativeButton("Đóng", null)
+                .show();
     }
 
     private void loadBitmapFromUri(Uri uri) {
@@ -293,4 +304,4 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() { super.onDestroy(); executor.shutdownNow(); }
-}
+                                        }
