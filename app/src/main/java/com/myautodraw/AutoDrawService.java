@@ -334,10 +334,11 @@ public class AutoDrawService extends AccessibilityService {
     private void manualSelectColor(ColorLayer layer, int idx, int total, Runnable done, Runnable onSkip) {
         resumeAction = done;
         skipAction = onSkip;
+        final String nl = String.valueOf((char) 10);
         mainHandler.post(() -> {
             setPassThrough(true);
             viewColorPreview.setBackgroundColor(layer.color);
-            txtPickColorCode.setText(layer.getHexString() + "\nH:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
+            txtPickColorCode.setText(layer.getHexString() + nl + "H:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
             layoutManualPickBar.setVisibility(View.VISIBLE);
             txtOverlayStatus.setText("Chọn màu " + (idx + 1) + "/" + total + " trên Builda rồi bấm [Vẽ tiếp ▶]");
         });
@@ -480,4 +481,4 @@ public class AutoDrawService extends AccessibilityService {
         boolean ok;
         try {
             ok = dispatchGesture(
-                    new GestureDescription.Builder().addStrok
+     
