@@ -1,8 +1,15 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/bgDark" android:fillViewport="true">
 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="14dp">
-<TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MyAutoDraw Color Pro" android:textColor="@color/textLight" android:textSize="21sp" android:textStyle="bold"/>
-<TextView android:id="@+id/txtInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:background="@color/cardDark" android:padding="10dp" android:text="1. Chọn ảnh màu cần vẽ. 2. Chọn phần màu &amp; chỉnh H-S-V nếu cần. 3. Bật Overlay &amp; Trợ năng để vẽ trên Builda." android:textColor="@color/textMuted" android:textSize="12sp"/>
-<FrameLayout android:layout_width="match_parent" android:layout_height="220dp" android:layout_marginTop="10dp" android:background="@color/cardDark" android:padding="6dp">
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+<ImageView android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="App Avatar" android:src="@mipmap/ic_launcher_round"/>
+<LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:layout_weight="1" android:orientation="vertical">
+<TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MyAutoDraw Pro v15" android:textColor="@color/textLight" android:textSize="20sp" android:textStyle="bold"/>
+<TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="by @ellenjoe023 • Vẽ màu 1px từ trên xuống dưới" android:textColor="#38BDF8" android:textSize="11sp" android:textStyle="bold"/>
+</LinearLayout>
+</LinearLayout>
+<TextView android:id="@+id/txtInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:background="@color/cardDark" android:padding="10dp" android:text="1. Chọn ảnh màu cần vẽ. 2. App tự động bật Cửa sổ nổi khi mở. 3. Đặt [Khung vẽ] lên Builda và bấm Vẽ." android:textColor="@color/textMuted" android:textSize="12sp"/>
+<CheckBox android:id="@+id/cbAutoFloating" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:checked="true" android:text="Tự động bật Cửa sổ nổi khi mở ứng dụng" android:textColor="#10B981" android:textSize="12sp" android:textStyle="bold"/>
+<FrameLayout android:layout_width="match_parent" android:layout_height="220dp" android:layout_marginTop="6dp" android:background="@color/cardDark" android:padding="6dp">
 <ImageView android:id="@+id/imgBackground" android:layout_width="match_parent" android:layout_height="match_parent" android:alpha="0.12" android:scaleType="centerCrop"/>
 <ImageView android:id="@+id/imgPreview" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#FFFFFF" android:scaleType="fitCenter"/>
 </FrameLayout>
