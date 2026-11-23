@@ -1,17 +1,13 @@
 package com.myautodraw;
-import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.TextUtils;
-import android.view.View;
 import android.widget.*;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -25,17 +21,16 @@ public class MainActivity extends AppCompatActivity {
     private ImageView imgPreview;
     private TextView txtInfo, txtColorCountLabel, txtThreshLabel, txtSpeedLabel;
     private TextView txtSelectedColorHex, txtHueVal, txtSatVal, txtValVal;
-    private View viewSelectedColorBox;
+    private android.view.View viewSelectedColorBox;
     private SeekBar seekColorCount, seekThresh, seekSpeed, seekHue, seekSat, seekVal;
     private RadioGroup rgMode, rgColorPickMode;
     private RadioButton rbColor, rbEdge, rbPickManual, rbPickAuto;
-    private CheckBox cbIgnoreWhite, cbLayerEnabled, cbAutoFloating;
+    private CheckBox cbIgnoreWhite, cbLayerEnabled;
     private LinearLayout layoutColorSwatches;
     private Button btnLoad, btnPerm, btnService, btnToggleAllColors;
     private Bitmap originalBitmap;
     private ColorLayer selectedLayer;
     private boolean updatingHsvUi = false;
-    private boolean autoPromptedAccessibility = false;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private final ActivityResultLauncher<String> pickImageLauncher =
@@ -69,20 +64,11 @@ public class MainActivity extends AppCompatActivity {
         rbPickAuto = findViewById(R.id.rbPickAuto);
         cbIgnoreWhite = findViewById(R.id.cbIgnoreWhite);
         cbLayerEnabled = findViewById(R.id.cbLayerEnabled);
-        cbAutoFloating = findViewById(R.id.cbAutoFloating);
         layoutColorSwatches = findViewById(R.id.layoutColorSwatches);
         btnToggleAllColors = findViewById(R.id.btnToggleAllColors);
         btnLoad = findViewById(R.id.btnLoad);
         btnPerm = findViewById(R.id.btnPerm);
         btnService = findViewById(R.id.btnService);
-
-        SharedPreferences prefs = getSharedPreferences("myautodraw_v15", MODE_PRIVATE);
-        boolean autoFloating = prefs.getBoolean("auto_floating", true);
-        cbAutoFloating.setChecked(autoFloating);
-        cbAutoFloating.setOnCheckedChangeListener((b, isChecked) -> {
-            prefs.edit().putBoolean("auto_floating", isChecked).apply();
-            if (isChecked) triggerAutoFloatingWindow();
-        });
 
         if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
         else rbPickManual.setChecked(true);
@@ -106,20 +92,17 @@ public class MainActivity extends AppCompatActivity {
         btnPerm.setOnClickListener(v -> {
             if (!Settings.canDrawOverlays(this)) {
                 startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
-            } else if (AutoDrawService.isRunning()) {
-                AutoDrawService.forceReinitOverlays();
-                Toast.makeText(this, "Đã bật lại Menu Vẽ Nổi!", Toast.LENGTH_SHORT).show();
             } else {
-                openAccessibilityGuideDialog();
+                AutoDrawService.ensureOverlaysVisible();
+                Toast.makeText(this, "Đã cấp quyền Overlay!", Toast.LENGTH_SHORT).show();
             }
         });
         btnService.setOnClickListener(v -> {
-            if (AutoDrawService.isRunning()) {
-                AutoDrawService.forceReinitOverlays();
-                Toast.makeText(this, "Đang bật lại Menu Vẽ Nổi...", Toast.LENGTH_SHORT).show();
-            } else {
-                openAccessibilityGuideDialog();
+            if (!Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Vui lòng cấp quyền Overlay trước!", Toast.LENGTH_SHORT).show();
+                return;
             }
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
         });
 
         seekColorCount.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -170,12 +153,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (cbAutoFloating.isChecked()) {
-            triggerAutoFloatingWindow();
-        } else if (AutoDrawService.isRunning()) {
-            AutoDrawService.forceReinitOverlays();
-        }
-
+        AutoDrawService.ensureOverlaysVisible();
         if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
         else rbPickManual.setChecked(true);
 
@@ -184,39 +162,14 @@ public class MainActivity extends AppCompatActivity {
         String enabled = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         boolean settingEnabled = !TextUtils.isEmpty(enabled) && (enabled.contains(expected) || enabled.contains(getPackageName() + "/.AutoDrawService"));
         boolean running = AutoDrawService.isRunning();
-        btnPerm.setText(overlayOk ? "2. Cửa sổ nổi (Overlay): ĐÃ BẬT ✓" : "2. Cấp quyền hiển thị nổi (Overlay)");
+        btnPerm.setText(overlayOk ? "2. Quyền Overlay: ĐÃ BẬT ✓" : "2. Cấp quyền hiển thị nổi (Overlay)");
         if (running) {
-            btnService.setText("3. Menu Vẽ Nổi v15: ĐANG HIỆN ✓ (Bấm để làm mới)");
+            btnService.setText("3. Dịch vụ AutoDraw: ĐANG CHẠY ✓");
         } else if (settingEnabled) {
-            btnService.setText("3. Dịch vụ bị ngắt — Bấm để tắt/bật lại");
+            btnService.setText("3. Bị hệ thống ngắt nền — Bấm để bật lại");
         } else {
-            btnService.setText("3. Bật Menu Vẽ Nổi (Trợ năng)");
+            btnService.setText("3. Bật dịch vụ AutoDraw (Trợ năng)");
         }
-    }
-
-    private void triggerAutoFloatingWindow() {
-        if (AutoDrawService.isRunning()) {
-            AutoDrawService.ensureOverlaysVisible();
-            return;
-        }
-        if (!autoPromptedAccessibility) {
-            autoPromptedAccessibility = true;
-            openAccessibilityGuideDialog();
-        }
-    }
-
-    private void openAccessibilityGuideDialog() {
-        final String nl = String.valueOf((char) 10);
-        String msg = "Để Menu Vẽ Nổi v15 hiện lên và tự vẽ trên Builda:" + nl + nl
-                + "1. Bấm [Mở Trợ năng] bên dưới -> Ứng dụng đã tải xuống -> MyAutoDraw Pro v15 -> Bật công tắc." + nl + nl
-                + "2. Nếu công tắc bị mờ (Android 13-15 báo Cài đặt bị hạn chế): bấm [Mở Thông tin App] -> dấu 3 chấm (⋮) góc trên -> Cho phép cài đặt bị hạn chế, rồi quay lại bật Trợ năng.";
-        new AlertDialog.Builder(this)
-                .setTitle("Kích hoạt Menu Vẽ Nổi v15")
-                .setMessage(msg)
-                .setPositiveButton("Mở Trợ năng", (d, w) -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
-                .setNeutralButton("Mở Thông tin App", (d, w) -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))))
-                .setNegativeButton("Đóng", null)
-                .show();
     }
 
     private void loadBitmapFromUri(Uri uri) {
@@ -234,7 +187,7 @@ public class MainActivity extends AppCompatActivity {
     private void reprocessImage() {
         if (originalBitmap == null) return;
         int mode = rbColor.isChecked() ? ImageProcessor.MODE_COLOR : (rbEdge.isChecked() ? ImageProcessor.MODE_EDGE : ImageProcessor.MODE_THRESHOLD);
-        txtInfo.setText("Đang tách màu & quét từ trên xuống dưới (1px)...");
+        txtInfo.setText("Đang làm sắc nét ảnh & tách màu từng pixel...");
         executor.execute(() -> {
             ImageProcessor.ProcessResult res = ImageProcessor.process(originalBitmap, mode, seekThresh.getProgress(), seekColorCount.getProgress() + 2, cbIgnoreWhite.isChecked());
             DrawRepository.setLayers(res.layers, (float) originalBitmap.getWidth() / originalBitmap.getHeight());
@@ -243,7 +196,7 @@ public class MainActivity extends AppCompatActivity {
                 selectedLayer = res.layers.isEmpty() ? null : res.layers.get(0);
                 refreshSelectedColorDisplay();
                 refreshSwatchesUi();
-                txtInfo.setText("v15 Sẵn sàng: " + res.layers.size() + " phần màu | " + res.totalStrokes + " hàng nét (" + res.totalPoints + " điểm).");
+                txtInfo.setText("Sẵn sàng: " + res.layers.size() + " phần màu | " + res.totalStrokes + " nét (" + res.totalPoints + " điểm).");
             });
         });
     }
@@ -304,4 +257,4 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() { super.onDestroy(); executor.shutdownNow(); }
-                                        }
+}
