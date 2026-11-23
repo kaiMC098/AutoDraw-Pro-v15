@@ -10,8 +10,8 @@ android {
         applicationId "com.myautodraw"
         minSdk 24
         targetSdk 34
-        versionCode 4
-        versionName "3.5-HD"
+        versionCode 15
+        versionName "15.0"
     }
 
     buildTypes {
