@@ -466,13 +466,62 @@ public class AutoDrawService extends AccessibilityService {
         boolean ok;
         try {
             ok = dispatchGesture(
-                    new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0, dur)).build(),
+                    new GestureDescription.Builder()
+                            .addStroke(new GestureDescription.StrokeDescription(path, 0, dur))
+                            .build(),
                     new GestureResultCallback() {
+                        @Override
                         public void onCompleted(GestureDescription g) {
-                            mainHandler.postDelayed(() -> drawStroke(layers, lIdx, sIdx + 1, 0, ox, oy, dw, dh), 14L);
+                            mainHandler.postDelayed(
+                                    () -> drawStroke(layers, lIdx, sIdx + 1, 0, ox, oy, dw, dh),
+                                    14L
+                            );
                         }
+
+                        @Override
                         public void onCancelled(GestureDescription g) {
                             if (!isDrawing) {
                                 mainHandler.post(() -> setPassThrough(false));
                             } else if (retryCount < 6) {
-                                mainHandler.postDelayed(() -> drawStroke(layers, lIdx, sIdx, retryCount + 1, ox, oy, dw, dh), 35L);
+                                mainHandler.postDelayed(
+                                        () -> drawStroke(layers, lIdx, sIdx, retryCount + 1, ox, oy, dw, dh),
+                                        35L
+                                );
+                            } else {
+                                failGesture();
+                            }
+                        }
+                    },
+                    null
+            );
+
+            if (!ok) {
+                if (retryCount < 6) {
+                    mainHandler.postDelayed(
+                            () -> drawStroke(layers, lIdx, sIdx, retryCount + 1, ox, oy, dw, dh),
+                            35L
+                    );
+                } else {
+                    failGesture();
+                }
+            }
+        } catch (RuntimeException e) {
+            failGesture();
+        }
+    }
+
+    @Override
+    public void onInterrupt() {
+        isDrawing = false;
+        resumeAction = null;
+        skipAction = null;
+        mainHandler.post(() -> {
+            hidePickUi();
+            setPassThrough(false);
+            applyMarkerVisibility();
+            if (txtOverlayStatus != null) {
+                txtOverlayStatus.setText("Dịch vụ trợ năng bị gián đoạn.");
+            }
+        });
+    }
+}
