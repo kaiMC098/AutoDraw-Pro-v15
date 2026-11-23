@@ -24,7 +24,7 @@ public class AutoDrawService extends AccessibilityService {
     private View panelView;
     private WindowManager.LayoutParams panelParams;
     private TextView txtOverlayStatus, txtPickColorCode;
-    private LinearLayout layoutManualPickBar;
+    private LinearLayout layoutManualPickBar, layoutOverlayBody;
     private TargetBoxView targetBoxView;
     private WindowManager.LayoutParams boxParams;
     private MarkerDotView colorBtnMarker;
@@ -35,8 +35,9 @@ public class AutoDrawService extends AccessibilityService {
     private WindowManager.LayoutParams brushBtnParams;
 
     private boolean markersVisible = true;
+    private boolean panelCollapsed = false;
     private volatile boolean isDrawing = false;
-    private Button btnHsv, btnContinue, btnSkipColor;
+    private Button btnHsv, btnContinue, btnSkipColor, btnMinimizePanel;
     private View viewColorPreview;
     private Runnable resumeAction;
     private Runnable skipAction;
@@ -54,13 +55,19 @@ public class AutoDrawService extends AccessibilityService {
     }
 
     public void restoreAllOverlays() {
-        if (windowManager == null) return;
+        if (windowManager == null) {
+            windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        }
+        if (!Settings.canDrawOverlays(this)) return;
         try {
             if (panelView == null) {
                 initOverlays();
                 return;
             }
             panelView.setVisibility(View.VISIBLE);
+            panelCollapsed = false;
+            if (layoutOverlayBody != null) layoutOverlayBody.setVisibility(View.VISIBLE);
+            if (btnMinimizePanel != null) btnMinimizePanel.setText("—");
             markersVisible = true;
             updateModeButtonUi();
             applyMarkerVisibility();
@@ -126,7 +133,9 @@ public class AutoDrawService extends AccessibilityService {
         panelParams = createParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, 36, 90, type);
         windowManager.addView(panelView, panelParams);
 
-        TextView drag = panelView.findViewById(R.id.btnDragHandle);
+        View dragHeader = panelView.findViewById(R.id.btnDragHandle);
+        layoutOverlayBody = panelView.findViewById(R.id.layoutOverlayBody);
+        btnMinimizePanel = panelView.findViewById(R.id.btnMinimizePanel);
         Button btnToggle = panelView.findViewById(R.id.btnToggleMarkers);
         Button btnStart = panelView.findViewById(R.id.btnStartDraw);
         Button btnStop = panelView.findViewById(R.id.btnStopDraw);
@@ -138,7 +147,7 @@ public class AutoDrawService extends AccessibilityService {
         btnSkipColor = panelView.findViewById(R.id.btnSkipColor);
         viewColorPreview = panelView.findViewById(R.id.viewColorPreview);
 
-        drag.setOnTouchListener(new View.OnTouchListener() {
+        dragHeader.setOnTouchListener(new View.OnTouchListener() {
             int ix, iy; float tx, ty;
             public boolean onTouch(View v, MotionEvent e) {
                 if (e.getAction() == MotionEvent.ACTION_DOWN) {
@@ -154,6 +163,12 @@ public class AutoDrawService extends AccessibilityService {
                 }
                 return false;
             }
+        });
+
+        btnMinimizePanel.setOnClickListener(v -> {
+            panelCollapsed = !panelCollapsed;
+            layoutOverlayBody.setVisibility(panelCollapsed ? View.GONE : View.VISIBLE);
+            btnMinimizePanel.setText(panelCollapsed ? "+" : "—");
         });
 
         updateModeButtonUi();
@@ -190,7 +205,7 @@ public class AutoDrawService extends AccessibilityService {
             resumeAction = null;
             skipAction = null;
             hidePickUi();
-            txtOverlayStatus.setText("Đang vẽ phần màu đã chọn...");
+            txtOverlayStatus.setText("Đang vẽ từ trên xuống dưới (1px)...");
             r.run();
         });
 
@@ -220,8 +235,8 @@ public class AutoDrawService extends AccessibilityService {
         boolean auto = DrawRepository.isAutoHsvBuilda();
         btnHsv.setText(auto ? "Màu:Tự động" : "Màu:Tay");
         txtOverlayStatus.setText(auto
-                ? "Tự động: Đặt khung cam H-S-V khớp 3 thanh trượt của Builda, chấm [Màu] & [Bút] lên icon dưới."
-                : "Thủ công: Đặt [Khung vẽ] lên giấy vẽ rồi bấm Vẽ. Mỗi màu sẽ dừng để bạn tự chọn.");
+                ? "Tự động (@ellenjoe023): Căn khung cam H-S-V, chấm [Màu] & [Bút] rồi bấm Vẽ."
+                : "Thủ công (@ellenjoe023): Đặt [Khung vẽ] lên giấy vẽ rồi bấm Vẽ.");
     }
 
     private void applyMarkerVisibility() {
@@ -296,13 +311,13 @@ public class AutoDrawService extends AccessibilityService {
                 hidePickUi();
                 setPassThrough(false);
                 applyMarkerVisibility();
-                txtOverlayStatus.setText("Hoàn tất vẽ toàn bộ tranh!");
+                txtOverlayStatus.setText("Hoàn tất vẽ toàn bộ tranh! (@ellenjoe023)");
                 Toast.makeText(this, "Đã vẽ xong!", Toast.LENGTH_SHORT).show();
             });
             return;
         }
         ColorLayer layer = layers.get(idx);
-        Runnable startStrokes = () -> drawStroke(layers, idx, 0, ox, oy, dw, dh);
+        Runnable startStrokes = () -> drawStroke(layers, idx, 0, 0, ox, oy, dw, dh);
         Runnable skipThisLayer = () -> processLayer(layers, idx + 1, ox, oy, dw, dh);
 
         if (DrawRepository.isAutoHsvBuilda()) {
@@ -324,7 +339,7 @@ public class AutoDrawService extends AccessibilityService {
             viewColorPreview.setBackgroundColor(layer.color);
             txtPickColorCode.setText(layer.getHexString() + "\nH:" + layer.hue + " S:" + layer.saturation + " V:" + layer.value);
             layoutManualPickBar.setVisibility(View.VISIBLE);
-            txtOverlayStatus.setText("Bước chọn màu " + (idx + 1) + "/" + total + ": Hãy chọn màu như ô mẫu trên Builda rồi bấm [Vẽ tiếp ▶]");
+            txtOverlayStatus.setText("Chọn màu " + (idx + 1) + "/" + total + " trên Builda rồi bấm [Vẽ tiếp ▶]");
         });
     }
 
@@ -425,25 +440,25 @@ public class AutoDrawService extends AccessibilityService {
         return new PointF(loc[0] + v.getWidth() / 2f, loc[1] + v.getHeight() / 2f);
     }
 
-    private void drawStroke(List<ColorLayer> layers, int lIdx, int sIdx, float ox, float oy, float dw, float dh) {
+    private void drawStroke(List<ColorLayer> layers, int lIdx, int sIdx, int retryCount, float ox, float oy, float dw, float dh) {
         if (!isDrawing) {
             mainHandler.post(() -> setPassThrough(false));
             return;
         }
         List<List<PointF>> strokes = layers.get(lIdx).strokes;
         if (sIdx >= strokes.size()) {
-            mainHandler.postDelayed(() -> processLayer(layers, lIdx + 1, ox, oy, dw, dh), 150L);
+            mainHandler.postDelayed(() -> processLayer(layers, lIdx + 1, ox, oy, dw, dh), 160L);
             return;
         }
-        if (sIdx % 10 == 0) {
+        if (sIdx % 12 == 0) {
             final int total = strokes.size();
             mainHandler.post(() -> txtOverlayStatus.setText(
-                    "Đang vẽ màu " + (lIdx + 1) + "/" + layers.size() + " — nét " + (sIdx + 1) + "/" + total
+                    "Màu " + (lIdx + 1) + "/" + layers.size() + " — hàng nét " + (sIdx + 1) + "/" + total
             ));
         }
         List<PointF> st = strokes.get(sIdx);
         if (st.isEmpty()) {
-            mainHandler.post(() -> drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh));
+            mainHandler.post(() -> drawStroke(layers, lIdx, sIdx + 1, 0, ox, oy, dw, dh));
             return;
         }
 
@@ -458,178 +473,11 @@ public class AutoDrawService extends AccessibilityService {
             px = nx;
             py = ny;
         }
-        if (length < 0.5f) path.lineTo(px + 0.5f, py + 0.5f);
+        if (length < 0.8f) path.lineTo(px + 0.8f, py);
 
         long base = DrawRepository.getStrokeDurationMs();
-        long dur = (long) Math.max((float) base + 12L, Math.min(30000f, length * (base / 28f)));
+        long dur = (long) Math.max((float) base, Math.min(12000f, base + length * (base / 45f)));
         boolean ok;
         try {
             ok = dispatchGesture(
-                    new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0, dur)).build(),
-                    new GestureResultCallback() {
-                        public void onCompleted(GestureDescription g) {
-                            mainHandler.postDelayed(() -> drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh), 8L);
-                        }
-                        public void onCancelled(GestureDescription g) {
-                            isDrawing = false;
-                            mainHandler.post(() -> setPassThrough(false));
-                        }
-                    }, null
-            );
-        } catch (Exception e) {
-            ok = false;
-        }
-        if (!ok) mainHandler.post(() -> drawStroke(layers, lIdx, sIdx + 1, ox, oy, dw, dh));
-    }
-
-    @Override public void onAccessibilityEvent(AccessibilityEvent e) {}
-    @Override public void onInterrupt() { isDrawing = false; }
-    @Override public void onDestroy() {
-        instance = null;
-        super.onDestroy();
-        isDrawing = false;
-        for (View v : new View[]{panelView, targetBoxView, hsvBoxView, colorBtnMarker, brushBtnMarker}) {
-            if (windowManager != null && v != null) {
-                try { windowManager.removeView(v); } catch (Exception ignored) {}
-            }
-        }
-        panelView = null;
-    }
-
-    private class TargetBoxView extends View {
-        Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG), cp = new Paint(Paint.ANTI_ALIAS_FLAG), tp = new Paint(Paint.ANTI_ALIAS_FLAG);
-        float lx, ly; boolean res = false;
-        TargetBoxView(Context c) {
-            super(c);
-            bp.setColor(Color.parseColor("#38BDF8")); bp.setStyle(Paint.Style.STROKE); bp.setStrokeWidth(5f);
-            cp.setColor(Color.parseColor("#10B981"));
-            tp.setColor(Color.parseColor("#38BDF8")); tp.setTextSize(28f); tp.setFakeBoldText(true);
-        }
-        protected void onDraw(Canvas c) {
-            c.drawColor(Color.parseColor("#1438BDF8"));
-            c.drawRect(2, 2, getWidth() - 2, getHeight() - 2, bp);
-            c.drawText("KHUNG VẼ", 14, 36, tp);
-            c.drawCircle(getWidth() - 22, getHeight() - 22, 22, cp);
-        }
-        public boolean onTouchEvent(MotionEvent e) {
-            if (isDrawing) return false;
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                lx = e.getRawX(); ly = e.getRawY();
-                res = (e.getX() > getWidth() - 70 && e.getY() > getHeight() - 70);
-                return true;
-            }
-            if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                int dx = (int) (e.getRawX() - lx), dy = (int) (e.getRawY() - ly);
-                lx = e.getRawX(); ly = e.getRawY();
-                if (res) {
-                    boxParams.width = Math.max(160, boxParams.width + dx);
-                    boxParams.height = Math.max(160, boxParams.height + dy);
-                    DrawRepository.boxW = boxParams.width;
-                    DrawRepository.boxH = boxParams.height;
-                } else {
-                    boxParams.x += dx;
-                    boxParams.y += dy;
-                    DrawRepository.boxX = boxParams.x;
-                    DrawRepository.boxY = boxParams.y;
-                }
-                windowManager.updateViewLayout(this, boxParams);
-                return true;
-            }
-            return super.onTouchEvent(e);
-        }
-    }
-
-    private class HsvSlidersBoxView extends View {
-        Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG), lp = new Paint(Paint.ANTI_ALIAS_FLAG);
-        Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG), cp = new Paint(Paint.ANTI_ALIAS_FLAG);
-        float lx, ly; boolean res = false;
-        HsvSlidersBoxView(Context c) {
-            super(c);
-            bp.setColor(Color.parseColor("#F59E0B")); bp.setStyle(Paint.Style.STROKE); bp.setStrokeWidth(4f);
-            lp.setColor(Color.parseColor("#FBBF24")); lp.setStrokeWidth(4f);
-            tp.setColor(Color.WHITE); tp.setTextSize(24f); tp.setFakeBoldText(true);
-            cp.setColor(Color.parseColor("#F59E0B"));
-        }
-        protected void onDraw(Canvas c) {
-            c.drawColor(Color.parseColor("#2A1E293B"));
-            int w = getWidth(), h = getHeight();
-            c.drawRect(2, 2, w - 2, h - 2, bp);
-            String[] lb = {"H", "S", "V"};
-            for (int i = 0; i < 3; i++) {
-                float y = h * ((2 * i + 1) / 6f);
-                c.drawLine(28, y, w - 28, y, lp);
-                c.drawCircle(28, y, 8, cp);
-                c.drawText(lb[i], 6, y + 8, tp);
-            }
-            c.drawCircle(w - 18, h - 18, 18, cp);
-        }
-        public boolean onTouchEvent(MotionEvent e) {
-            if (isDrawing) return false;
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                lx = e.getRawX(); ly = e.getRawY();
-                res = (e.getX() > getWidth() - 60 && e.getY() > getHeight() - 60);
-                return true;
-            }
-            if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                int dx = (int) (e.getRawX() - lx), dy = (int) (e.getRawY() - ly);
-                lx = e.getRawX(); ly = e.getRawY();
-                if (res) {
-                    hsvBoxParams.width = Math.max(160, hsvBoxParams.width + dx);
-                    hsvBoxParams.height = Math.max(110, hsvBoxParams.height + dy);
-                    DrawRepository.hsvW = hsvBoxParams.width;
-                    DrawRepository.hsvH = hsvBoxParams.height;
-                } else {
-                    hsvBoxParams.x += dx;
-                    hsvBoxParams.y += dy;
-                    DrawRepository.hsvX = hsvBoxParams.x;
-                    DrawRepository.hsvY = hsvBoxParams.y;
-                }
-                windowManager.updateViewLayout(this, hsvBoxParams);
-                return true;
-            }
-            return super.onTouchEvent(e);
-        }
-    }
-
-    private class MarkerDotView extends View {
-        String label;
-        Paint fp = new Paint(Paint.ANTI_ALIAS_FLAG), rp = new Paint(Paint.ANTI_ALIAS_FLAG), tp = new Paint(Paint.ANTI_ALIAS_FLAG);
-        float lx, ly;
-        MarkerDotView(Context c, String l, int col) {
-            super(c);
-            label = l;
-            fp.setColor(col); fp.setAlpha(200);
-            rp.setColor(Color.WHITE); rp.setStyle(Paint.Style.STROKE); rp.setStrokeWidth(4f);
-            tp.setColor(Color.WHITE); tp.setTextSize(24f); tp.setFakeBoldText(true); tp.setTextAlign(Paint.Align.CENTER);
-        }
-        protected void onDraw(Canvas c) {
-            float cx = getWidth() / 2f, cy = getHeight() / 2f, r = Math.min(cx, cy) - 4f;
-            c.drawCircle(cx, cy, r, fp);
-            c.drawCircle(cx, cy, r, rp);
-            c.drawText(label, cx, cy + 8f, tp);
-        }
-        public boolean onTouchEvent(MotionEvent e) {
-            if (isDrawing) return false;
-            WindowManager.LayoutParams p = (this == colorBtnMarker) ? colorBtnParams : brushBtnParams;
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                lx = e.getRawX(); ly = e.getRawY();
-                return true;
-            }
-            if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                p.x += (int) (e.getRawX() - lx);
-                p.y += (int) (e.getRawY() - ly);
-                lx = e.getRawX(); ly = e.getRawY();
-                if (this == colorBtnMarker) {
-                    DrawRepository.colorBtnX = p.x;
-                    DrawRepository.colorBtnY = p.y;
-                } else {
-                    DrawRepository.brushBtnX = p.x;
-                    DrawRepository.brushBtnY = p.y;
-                }
-                windowManager.updateViewLayout(this, p);
-                return true;
-            }
-            return super.onTouchEvent(e);
-        }
-    }
-}
+                    new GestureDescription.Builder().addStrok
