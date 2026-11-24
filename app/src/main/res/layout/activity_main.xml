@@ -95,15 +95,15 @@
                 android:id="@+id/txtColorCountLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Số lượng màu tách từ ảnh: 8 màu"
+                android:text="Số lượng màu tách từ ảnh: 16 màu"
                 android:textColor="@color/textLight"
                 android:textSize="12sp" />
             <SeekBar
                 android:id="@+id/seekColorCount"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:max="14"
-                android:progress="6" />
+                android:max="22"
+                android:progress="14" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
