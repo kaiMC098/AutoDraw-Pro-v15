@@ -190,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
         txtInfo.setText("Đang làm sắc nét ảnh & tách màu từng pixel...");
         executor.execute(() -> {
             ImageProcessor.ProcessResult res = ImageProcessor.process(originalBitmap, mode, seekThresh.getProgress(), seekColorCount.getProgress() + 2, cbIgnoreWhite.isChecked());
-            DrawRepository.setLayers(res.layers, (float) originalBitmap.getWidth() / originalBitmap.getHeight());
+            DrawRepository.setLayers(res.layers, (float) originalBitmap.getWidth() / originalBitmap.getHeight(), res.gridW, res.gridH);
             runOnUiThread(() -> {
                 imgPreview.setImageBitmap(res.previewBitmap);
                 selectedLayer = res.layers.isEmpty() ? null : res.layers.get(0);
@@ -203,7 +203,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshPreviewOnly() {
         List<ColorLayer> layers = DrawRepository.getLayers();
-        if (layers != null && !layers.isEmpty()) imgPreview.setImageBitmap(ImageProcessor.renderPreview(layers, 140, 140));
+        if (layers != null && !layers.isEmpty()) imgPreview.setImageBitmap(ImageProcessor.renderPreview(layers, DrawRepository.getGridW(), DrawRepository.getGridH()));
     }
 
     private void refreshSelectedColorDisplay() {

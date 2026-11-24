@@ -189,9 +189,10 @@ public class AutoDrawService extends AccessibilityService {
     float px = cx(ox + st.get(0).x * dw), py = cy(oy + st.get(0).y * dh), len = 0f;
     path.moveTo(px, py);
     for (int i = 1; i < st.size(); i++) { float nx = cx(ox + st.get(i).x * dw), ny = cy(oy + st.get(i).y * dh); len += (float) Math.hypot(nx - px, ny - py); path.lineTo(nx, ny); px = nx; py = ny; }
-    if (len < 0.8f) path.lineTo(px + 0.8f, py);
-    long base = DrawRepository.getStrokeDurationMs(), dur = (long) Math.max((float) base, Math.min(12000f, base + len * (base / 45f)));
-    boolean ok = gest(path, dur, () -> ui.postDelayed(() -> drawStroke(ls, li, si + 1, 0, ox, oy, dw, dh), 14L), () -> {
+    if (len < 0.8f) path.lineTo(px + 0.5f, py);
+    long base = DrawRepository.getStrokeDurationMs();
+    long dur = (len < 1.5f) ? Math.max(32L, base) : (long) Math.max((float) (base + 6L), Math.min(12000f, base + len * (base / 36f)));
+    boolean ok = gest(path, dur, () -> ui.postDelayed(() -> drawStroke(ls, li, si + 1, 0, ox, oy, dw, dh), 18L), () -> {
       if (!drawing) ui.post(() -> setPT(false));
       else if (rt < 6) ui.postDelayed(() -> drawStroke(ls, li, si, rt + 1, ox, oy, dw, dh), 35L);
       else ui.postDelayed(() -> drawStroke(ls, li, si + 1, 0, ox, oy, dw, dh), 18L);
