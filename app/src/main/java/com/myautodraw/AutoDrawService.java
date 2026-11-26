@@ -25,6 +25,7 @@ public class AutoDrawService extends AccessibilityService {
   private Button btnHsv;
   private boolean markersOn = true;
   private volatile boolean drawing = false;
+  private int runId = 0, drawnCount = 0, totalStrokes = 0;
   private Runnable onGo, onSkip;
   private int sw = 1080, sh = 2400;
   private final Handler ui = new Handler(Looper.getMainLooper());
@@ -99,9 +100,9 @@ public class AutoDrawService extends AccessibilityService {
         if (ls == null || ls.isEmpty()) { Toast.makeText(this, "Chưa có ảnh! Chọn ảnh trước.", Toast.LENGTH_SHORT).show(); return; }
         startDraw(ls);
       });
-      bCont.setOnClickListener(v -> { Runnable r = onGo; if (r == null) return; onGo = null; onSkip = null; hidePick(); txtStatus.setText("Đang vẽ..."); r.run(); });
-      bSkip.setOnClickListener(v -> { Runnable s = onSkip; if (s == null) return; onGo = null; onSkip = null; hidePick(); txtStatus.setText("Bỏ qua màu..."); s.run(); });
-      bStop.setOnClickListener(v -> { drawing = false; onGo = null; onSkip = null; hidePick(); setPT(false); applyVis(); txtStatus.setText("Đã dừng."); });
+      bCont.setOnClickListener(v -> { Runnable r = onGo; if (r == null) return; onGo = null; onSkip = null; hidePick(); drawing = true; setPT(true); txtStatus.setText("Đang vẽ tiếp..."); r.run(); });
+      bSkip.setOnClickListener(v -> { Runnable s = onSkip; if (s == null) return; onGo = null; onSkip = null; hidePick(); drawing = true; setPT(true); txtStatus.setText("Bỏ qua màu..."); s.run(); });
+      bStop.setOnClickListener(v -> { runId++; drawing = false; onGo = null; onSkip = null; hidePick(); setPT(false); applyVis(); txtStatus.setText("Đã dừng (" + drawnCount + "/" + totalStrokes + " nét)."); });
     } catch (Exception e) { clearViews(); Toast.makeText(this, "Lỗi menu nổi: " + e.getMessage(), Toast.LENGTH_LONG).show(); }
   }
 
@@ -133,20 +134,28 @@ public class AutoDrawService extends AccessibilityService {
     if (!markersOn) { markersOn = true; applyVis(); }
     float w = boxV.getWidth(), h = boxV.getHeight(), r = DrawRepository.getAspectRatio();
     if (w <= 0 || h <= 0) return;
-    drawing = true; setPT(true);
+    int sum = 0; for (ColorLayer cl : ls) if (cl.strokes != null) sum += cl.strokes.size();
+    if (sum == 0) return;
+    int rid = ++runId;
+    drawnCount = 0; totalStrokes = sum; drawing = true; setPT(true);
     int[] loc = new int[2]; boxV.getLocationOnScreen(loc);
     float dw = w, dh = w / r; if (dh > h) { dh = h; dw = h * r; }
-    runLayer(ls, 0, loc[0] + (w - dw) / 2f, loc[1] + (h - dh) / 2f, dw, dh);
+    runLayer(rid, ls, 0, loc[0] + (w - dw) / 2f, loc[1] + (h - dh) / 2f, dw, dh);
   }
 
-  private void runLayer(List<ColorLayer> ls, int idx, float ox, float oy, float dw, float dh) {
-    if (!drawing || idx >= ls.size()) { drawing = false; ui.post(() -> { hidePick(); setPT(false); applyVis(); txtStatus.setText("Hoàn tất!"); Toast.makeText(this, "Đã vẽ xong!", Toast.LENGTH_SHORT).show(); }); return; }
+  private void runLayer(int rid, List<ColorLayer> ls, int idx, float ox, float oy, float dw, float dh) {
+    if (!drawing || rid != runId) return;
+    if (idx >= ls.size()) {
+      drawing = false;
+      ui.post(() -> { hidePick(); setPT(false); applyVis(); txtStatus.setText("Hoàn tất (" + drawnCount + "/" + totalStrokes + " nét)!"); Toast.makeText(this, "Đã vẽ xong!", Toast.LENGTH_SHORT).show(); });
+      return;
+    }
     ColorLayer l = ls.get(idx);
-    Runnable go = () -> drawStroke(ls, idx, 0, 0, ox, oy, dw, dh), sk = () -> runLayer(ls, idx + 1, ox, oy, dw, dh);
+    Runnable go = () -> drawStroke(rid, ls, idx, 0, 0, ox, oy, dw, dh), sk = () -> runLayer(rid, ls, idx + 1, ox, oy, dw, dh);
     if (DrawRepository.isAutoHsvBuilda()) {
       ui.post(() -> txtStatus.setText("Màu " + (idx + 1) + "/" + ls.size() + ": " + l.getHexString()));
       PointF c = ctr(colorDot);
-      tap(c.x, c.y, () -> ui.postDelayed(() -> { if (!drawing) return; applyHsv(l, () -> { if (!drawing) return; PointF b = ctr(brushDot); tap(b.x, b.y, () -> ui.postDelayed(go, 450L)); }); }, 550L));
+      tap(rid, c.x, c.y, () -> ui.postDelayed(() -> { if (!drawing || rid != runId) return; applyHsv(rid, l, () -> { if (!drawing || rid != runId) return; PointF b = ctr(brushDot); tap(rid, b.x, b.y, () -> ui.postDelayed(go, 480L)); }); }, 560L));
     } else {
       onGo = go; onSkip = sk;
       String nl = String.valueOf((char) 10);
@@ -154,56 +163,81 @@ public class AutoDrawService extends AccessibilityService {
     }
   }
 
-  private void applyHsv(ColorLayer l, Runnable done) {
+  private void applyHsv(int rid, ColorLayer l, Runnable done) {
     int[] loc = new int[2]; hsvV.getLocationOnScreen(loc);
     float left = loc[0] + 28f, tw = Math.max(40f, hsvV.getWidth() - 56f), top = loc[1], h = hsvV.getHeight();
-    ui.postDelayed(() -> { if (!drawing) return; setSl(left, tw, top + h / 6f, l.hue / 360f, () -> ui.postDelayed(() -> { if (!drawing) return; setSl(left, tw, top + h * 0.5f, l.saturation / 100f, () -> ui.postDelayed(() -> { if (!drawing) return; setSl(left, tw, top + h * (5f / 6f), l.value / 100f, done); }, 160L)); }, 160L)); }, 250L);
+    ui.postDelayed(() -> { if (!drawing || rid != runId) return; setSl(rid, left, tw, top + h / 6f, l.hue / 360f, () -> ui.postDelayed(() -> { if (!drawing || rid != runId) return; setSl(rid, left, tw, top + h * 0.5f, l.saturation / 100f, () -> ui.postDelayed(() -> { if (!drawing || rid != runId) return; setSl(rid, left, tw, top + h * (5f / 6f), l.value / 100f, done); }, 180L)); }, 180L)); }, 260L);
   }
 
-  private void setSl(float left, float tw, float y, float f, Runnable done) {
+  private void setSl(int rid, float left, float tw, float y, float f, Runnable done) {
     float tx = left + Math.max(0f, Math.min(1f, f)) * tw;
-    slide(left + tw, left, y, 140L, () -> { if (!drawing) return; if (f <= 0.01f) done.run(); else ui.postDelayed(() -> slide(left, tx, y, 180L, done), 90L); });
+    slide(rid, left + tw, left, y, 150L, () -> { if (!drawing || rid != runId) return; if (f <= 0.01f) done.run(); else ui.postDelayed(() -> slide(rid, left, tx, y, 190L, done), 100L); });
   }
 
   private float cx(float x) { return Math.max(1f, Math.min(sw - 1f, x)); }
   private float cy(float y) { return Math.max(1f, Math.min(sh - 1f, y)); }
 
-  private boolean gest(Path p, long d, Runnable okCb, Runnable canCb) {
-    try { return dispatchGesture(new Builder().addStroke(new StrokeDescription(p, 0, d)).build(), new GestureResultCallback() { public void onCompleted(GestureDescription g) { if (okCb != null) okCb.run(); } public void onCancelled(GestureDescription g) { if (canCb != null) canCb.run(); } }, null); }
+  private boolean gest(int rid, Path p, long d, Runnable okCb, Runnable canCb) {
+    if (!drawing || rid != runId) return false;
+    try { return dispatchGesture(new Builder().addStroke(new StrokeDescription(p, 0, d)).build(), new GestureResultCallback() { public void onCompleted(GestureDescription g) { if (drawing && rid == runId && okCb != null) okCb.run(); } public void onCancelled(GestureDescription g) { if (drawing && rid == runId && canCb != null) canCb.run(); } }, null); }
     catch (Exception e) { return false; }
   }
 
-  private void slide(float fx, float tx, float y, long d, Runnable done) { Path p = new Path(); p.moveTo(cx(fx), cy(y)); p.lineTo(cx(tx), cy(y)); if (!gest(p, d, done, () -> { drawing = false; ui.post(() -> setPT(false)); })) fail(); }
-  private void tap(float x, float y, Runnable done) { Path p = new Path(); p.moveTo(cx(x), cy(y)); p.lineTo(cx(x) + 1f, cy(y) + 1f); if (!gest(p, 60L, done, () -> { drawing = false; ui.post(() -> setPT(false)); })) fail(); }
-  private void fail() { drawing = false; ui.post(() -> { hidePick(); setPT(false); if (txtStatus != null) txtStatus.setText("Lỗi chạm. Bật lại Trợ năng."); }); }
+  private void slide(int rid, float fx, float tx, float y, long d, Runnable done) { Path p = new Path(); p.moveTo(cx(fx), cy(y)); p.lineTo(cx(tx), cy(y)); if (!gest(rid, p, d, done, () -> pauseOnBlock(null, null))) pauseOnBlock(null, null); }
+  private void tap(int rid, float x, float y, Runnable done) { Path p = new Path(); p.moveTo(cx(x), cy(y)); p.lineTo(cx(x) + 1f, cy(y) + 1f); if (!gest(rid, p, 70L, done, () -> pauseOnBlock(null, null))) pauseOnBlock(null, null); }
+
+  private void pauseOnBlock(Runnable resumeStroke, Runnable skipLayer) {
+    drawing = false;
+    ui.post(() -> {
+      setPT(false);
+      if (resumeStroke != null) {
+        onGo = resumeStroke; onSkip = skipLayer;
+        if (manualBar != null) manualBar.setVisibility(View.VISIBLE);
+        if (txtStatus != null) txtStatus.setText("Tạm dừng (" + drawnCount + "/" + totalStrokes + " nét) — bấm [Vẽ tiếp ▶] để vẽ nốt.");
+      } else {
+        hidePick();
+        if (txtStatus != null) txtStatus.setText("Lỗi chạm. Hãy tắt/bật lại Trợ năng.");
+      }
+    });
+  }
+
   private PointF ctr(View v) { int[] loc = new int[2]; v.getLocationOnScreen(loc); return new PointF(loc[0] + v.getWidth() / 2f, loc[1] + v.getHeight() / 2f); }
 
-  private void drawStroke(List<ColorLayer> ls, int li, int si, int rt, float ox, float oy, float dw, float dh) {
-    if (!drawing) { ui.post(() -> setPT(false)); return; }
+  private void drawStroke(int rid, List<ColorLayer> ls, int li, int si, int rt, float ox, float oy, float dw, float dh) {
+    if (!drawing || rid != runId) return;
     List<List<PointF>> sts = ls.get(li).strokes;
-    if (si >= sts.size()) { ui.postDelayed(() -> runLayer(ls, li + 1, ox, oy, dw, dh), 160L); return; }
-    if (si % 12 == 0) { int tot = sts.size(); ui.post(() -> txtStatus.setText("Màu " + (li + 1) + "/" + ls.size() + " — nét " + (si + 1) + "/" + tot)); }
+    if (si >= sts.size()) { ui.postDelayed(() -> runLayer(rid, ls, li + 1, ox, oy, dw, dh), 180L); return; }
+    if (si % 10 == 0) { int tot = sts.size(); ui.post(() -> txtStatus.setText("Màu " + (li + 1) + "/" + ls.size() + " — nét " + (si + 1) + "/" + tot + " (" + drawnCount + "/" + totalStrokes + ")")); }
     List<PointF> st = sts.get(si);
-    if (st.isEmpty()) { ui.post(() -> drawStroke(ls, li, si + 1, 0, ox, oy, dw, dh)); return; }
+    if (st.isEmpty()) { ui.post(() -> drawStroke(rid, ls, li, si + 1, 0, ox, oy, dw, dh)); return; }
     Path path = new Path();
     float px = cx(ox + st.get(0).x * dw), py = cy(oy + st.get(0).y * dh), len = 0f;
     path.moveTo(px, py);
     for (int i = 1; i < st.size(); i++) { float nx = cx(ox + st.get(i).x * dw), ny = cy(oy + st.get(i).y * dh); len += (float) Math.hypot(nx - px, ny - py); path.lineTo(nx, ny); px = nx; py = ny; }
     if (len < 0.8f) path.lineTo(px + 0.5f, py);
     long base = DrawRepository.getStrokeDurationMs();
-    long dur = (len < 1.5f) ? Math.max(32L, base) : (long) Math.max((float) (base + 6L), Math.min(12000f, base + len * (base / 36f)));
-    boolean ok = gest(path, dur, () -> ui.postDelayed(() -> drawStroke(ls, li, si + 1, 0, ox, oy, dw, dh), 18L), () -> {
-      if (!drawing) ui.post(() -> setPT(false));
-      else if (rt < 6) ui.postDelayed(() -> drawStroke(ls, li, si, rt + 1, ox, oy, dw, dh), 35L);
-      else ui.postDelayed(() -> drawStroke(ls, li, si + 1, 0, ox, oy, dw, dh), 18L);
-    });
-    if (!ok) { if (rt < 10) ui.postDelayed(() -> drawStroke(ls, li, si, rt + 1, ox, oy, dw, dh), 30L); else ui.postDelayed(() -> drawStroke(ls, li, si + 1, 0, ox, oy, dw, dh), 18L); }
+    long dur = (len < 1.5f) ? Math.max(36L, base) : (long) Math.max((float) (base + 8L), Math.min(12000f, base + len * (base / 34f)));
+    long gap = Math.max(22L, base / 2L);
+    Runnable retryOrPause = () -> {
+      if (!drawing || rid != runId) return;
+      if (rt < 16) {
+        long wait = Math.min(450L, 65L + rt * 25L);
+        ui.postDelayed(() -> drawStroke(rid, ls, li, si, rt + 1, ox, oy, dw, dh), wait);
+      } else {
+        pauseOnBlock(() -> drawStroke(rid, ls, li, si, 0, ox, oy, dw, dh), () -> runLayer(rid, ls, li + 1, ox, oy, dw, dh));
+      }
+    };
+    boolean ok = gest(rid, path, dur, () -> {
+      drawnCount++;
+      ui.postDelayed(() -> drawStroke(rid, ls, li, si + 1, 0, ox, oy, dw, dh), gap);
+    }, retryOrPause);
+    if (!ok) retryOrPause.run();
   }
 
   private Paint mp(int col, float w, boolean s) { Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); p.setColor(col); if (s) { p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(w); } else if (w > 0) { p.setTextSize(w); p.setFakeBoldText(true); } return p; }
   @Override public void onAccessibilityEvent(AccessibilityEvent e) {}
-  @Override public void onInterrupt() { drawing = false; }
-  @Override public void onDestroy() { inst = null; super.onDestroy(); drawing = false; clearViews(); }
+  @Override public void onInterrupt() { runId++; drawing = false; }
+  @Override public void onDestroy() { inst = null; runId++; super.onDestroy(); drawing = false; clearViews(); }
 
   private class BoxView extends View {
     final boolean isHsv; final Paint bp, cp, tp, lp; float lx, ly; boolean res = false;

@@ -19,20 +19,20 @@ public class ImageProcessor {
   }
 
   public static ProcessResult process(Bitmap src, int mode, int thresh, int maxColors, boolean ignoreWhite) {
-    int maxDim = (mode == MODE_COLOR) ? (100 + Math.round((thresh / 255f) * 120f)) : 260;
+    int maxDim = (mode == MODE_COLOR) ? (150 + Math.round((thresh / 255f) * 150f)) : 280;
     float sc = (float) maxDim / Math.max(src.getWidth(), src.getHeight());
     int w = Math.max(24, Math.round(src.getWidth() * sc));
     int h = Math.max(24, Math.round(src.getHeight() * sc));
     Bitmap baseBmp = Bitmap.createScaledBitmap(src, w, h, true);
-    Bitmap sharpBmp = sharpenNoHalo(baseBmp, w, h);
+    Bitmap sharpBmp = sharpenAndSnapEdges(baseBmp, w, h);
 
     return (mode == MODE_COLOR)
         ? processColorExact1Px(sharpBmp, w, h, maxColors, ignoreWhite)
         : processMono1Px(sharpBmp, w, h, thresh, mode == MODE_EDGE);
   }
 
-  // Làm nét thích ứng theo từng ảnh nhưng kẹp chặt trong [min, max] lân cận để KHÔNG tạo viền đen giả (halo)
-  private static Bitmap sharpenNoHalo(Bitmap src, int w, int h) {
+  // Làm sắc nét thích ứng + khóa biên Shock Filter để xóa mờ viền khi thu nhỏ mà không tạo viền đen giả
+  private static Bitmap sharpenAndSnapEdges(Bitmap src, int w, int h) {
     if (w < 6 || h < 6) return src;
     int[] px = new int[w * h];
     src.getPixels(px, 0, w, 0, 0, w, h);
@@ -41,12 +41,11 @@ public class ImageProcessor {
     for (int y = 1; y < h - 1; y++) {
       for (int x = 1; x < w - 1; x++) {
         int c0 = px[y * w + x], cx = px[y * w + x + 1], cy = px[(y + 1) * w + x];
-        double g0 = lum(c0), gx = lum(cx), gy = lum(cy);
-        sumG += Math.hypot(gx - g0, gy - g0); cnt++;
+        sumG += Math.hypot(lum(cx) - lum(c0), lum(cy) - lum(c0)); cnt++;
       }
     }
     double meanG = cnt > 0 ? sumG / cnt : 14.0;
-    float strength = (float) (0.28 + 0.55 * Math.max(0.0, Math.min(1.0, (14.0 - meanG) / 10.0)));
+    float strength = (float) (0.72 + 0.75 * Math.max(0.0, Math.min(1.0, (16.0 - meanG) / 11.0)));
 
     int[] out = new int[w * h];
     int[] wt = {1, 2, 1, 2, 4, 2, 1, 2, 1};
@@ -67,9 +66,24 @@ public class ImageProcessor {
             if (pb < minB) minB = pb; if (pb > maxB) maxB = pb;
           }
         }
-        int nr = clamp(Math.round(r0 + strength * (r0 - rb / 16f)), minR, maxR);
-        int ng = clamp(Math.round(g0 + strength * (g0 - gb / 16f)), minG, maxG);
-        int nb = clamp(Math.round(b0 + strength * (b0 - bb / 16f)), minB, maxB);
+        float sr = r0 + strength * (r0 - rb / 16f);
+        float sg = g0 + strength * (g0 - gb / 16f);
+        float sb = b0 + strength * (b0 - bb / 16f);
+
+        int amp = Math.max(maxR - minR, Math.max(maxG - minG, maxB - minB));
+        if (amp > 24) {
+          float snap = Math.min(0.58f, (amp - 24f) / 95f);
+          float tr = (r0 >= 0.5f * (minR + maxR)) ? maxR : minR;
+          float tg = (g0 >= 0.5f * (minG + maxG)) ? maxG : minG;
+          float tb = (b0 >= 0.5f * (minB + maxB)) ? maxB : minB;
+          sr = sr * (1f - snap) + tr * snap;
+          sg = sg * (1f - snap) + tg * snap;
+          sb = sb * (1f - snap) + tb * snap;
+        }
+
+        int nr = clamp(Math.round(sr), Math.max(0, minR - 8), Math.min(255, maxR + 8));
+        int ng = clamp(Math.round(sg), Math.max(0, minG - 8), Math.min(255, maxG + 8));
+        int nb = clamp(Math.round(sb), Math.max(0, minB - 8), Math.min(255, maxB + 8));
         out[idx] = Color.argb(a, nr, ng, nb);
       }
     }
@@ -80,7 +94,6 @@ public class ImageProcessor {
 
   private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 
-  // Chỉ bỏ nền trắng nối liền với viền ngoài ảnh -> GIỮ NGUYÊN tròng trắng mắt, răng nanh & điểm sáng trắng bên trong
   private static boolean[] detectOuterWhiteBg(int[] r, int[] g, int[] b, int[] alpha, int w, int h) {
     boolean[] bg = new boolean[w * h];
     int[] q = new int[w * h];
@@ -167,8 +180,8 @@ public class ImageProcessor {
       }
       if (area == 0) continue;
       int col = Color.rgb((int) (sr / area), (int) (sg / area), (int) (sb / area));
-      boolean important = lum(col) < 65 || lum(col) > 235;
-      int minArea = important ? 2 : Math.max(3, nPx / 9000);
+      boolean important = lum(col) < 70 || lum(col) > 235;
+      int minArea = important ? 1 : Math.max(2, nPx / 12000);
       if (area < minArea) continue;
 
       ColorLayer layer = new ColorLayer(col);
@@ -182,7 +195,6 @@ public class ImageProcessor {
       }
     }
 
-    // Thứ tự vẽ chuẩn họa sĩ: Mảng nền lớn -> Chi tiết trung gian -> Nét đen/lông mi thật -> Đốm sáng trắng nhỏ cuối cùng
     final int highlightLimit = Math.max(12, totValid / 12);
     Collections.sort(layers, (a, b2) -> {
       int aa = areaMap.get(a), ab = areaMap.get(b2);
@@ -197,12 +209,11 @@ public class ImageProcessor {
 
   private static int layerStage(int col, int area, int highlightLimit) {
     int l = lum(col);
-    if (l > 235 && area <= highlightLimit) return 2; // Đốm sáng mắt, bóng môi vẽ sau cùng
-    if (l < 65) return 1; // Lông mi, viền tối thật của ảnh gốc vẽ đè sắc nét lên mảng màu
-    return 0; // Các mảng nền, tóc, da, bóng vẽ từ lớn tới nhỏ
+    if (l > 235 && area <= highlightLimit) return 2;
+    if (l < 70) return 1;
+    return 0;
   }
 
-  // Quét từng hàng 1 pixel từ trên xuống dưới, giữ trọn điểm sáng 1px
   private static List<List<PointF>> scanTopDown1Px(boolean[][] map, int w, int h) {
     List<List<PointF>> strokes = new ArrayList<>();
     for (int y = 0; y < h; y++) {
@@ -227,28 +238,24 @@ public class ImageProcessor {
     return strokes;
   }
 
-  // Khởi tạo tâm màu thông minh: ưu tiên giữ lại màu tối thật (lông mi), màu sáng (đốm mắt) và các màu nổi bật (mắt xanh...)
   private static int[][] seedCentroidsSmart(List<Integer> samples, int[] r, int[] g, int[] b, int k) {
     int n = samples.size();
     int[][] cent = new int[k][3];
-    int step = Math.max(1, n / 4000);
-    List<Integer> sub = new ArrayList<>(Math.min(n, 4500));
+    int step = Math.max(1, n / 4500);
+    List<Integer> sub = new ArrayList<>(Math.min(n, 5000));
     for (int i = 0; i < n; i += step) sub.add(samples.get(i));
     int m = sub.size();
 
     int placed = 0;
-    // 1. Luôn giữ 1 màu tối nhất nếu ảnh có nét viền/lông mi tối thật
-    int darkIdx = -1, minLum = 65;
-    int darkCount = 0;
+    int darkIdx = -1, minLum = 70, darkCount = 0;
     for (int idx : sub) {
       int l = (r[idx] * 299 + g[idx] * 587 + b[idx] * 114) / 1000;
-      if (l < 65) { darkCount++; if (l < minLum) { minLum = l; darkIdx = idx; } }
+      if (l < 70) { darkCount++; if (l < minLum) { minLum = l; darkIdx = idx; } }
     }
-    if (darkIdx >= 0 && darkCount >= 3 && placed < k) {
+    if (darkIdx >= 0 && darkCount >= 2 && placed < k) {
       cent[placed][0] = r[darkIdx]; cent[placed][1] = g[darkIdx]; cent[placed][2] = b[darkIdx]; placed++;
     }
 
-    // 2. Luôn giữ 1 màu sáng trắng nhất nếu ảnh có điểm sáng mắt/răng/bóng môi
     int brightIdx = -1, maxLum = 235, brightCount = 0;
     for (int idx : sub) {
       int l = (r[idx] * 299 + g[idx] * 587 + b[idx] * 114) / 1000;
@@ -258,13 +265,11 @@ public class ImageProcessor {
       cent[placed][0] = r[brightIdx]; cent[placed][1] = g[brightIdx]; cent[placed][2] = b[brightIdx]; placed++;
     }
 
-    // 3. Nếu chưa có tâm nào, chọn màu trung bình gần nhất ở giữa
     if (placed == 0) {
       int mid = sub.get(m / 2);
       cent[0][0] = r[mid]; cent[0][1] = g[mid]; cent[0][2] = b[mid]; placed = 1;
     }
 
-    // 4. Chọn các tâm còn lại bằng khoảng cách cảm nhận xa nhất (Farthest-Point) để không bỏ sót mắt xanh hay màu nhấn
     long[] minDist = new long[m];
     Arrays.fill(minDist, Long.MAX_VALUE);
     for (int c = 0; c < placed; c++) {
@@ -294,7 +299,6 @@ public class ImageProcessor {
     return cent;
   }
 
-  // Chỉ lọc nhiễu hạt 1px cô lập (7/8 lân cận khác màu), bảo toàn tuyệt đối lông mi mảnh & đốm sáng mắt
   private static int[] cleanIsolatedDots(int[] label, int[][] cent, int w, int h) {
     int[] next = label.clone();
     for (int y = 1; y < h - 1; y++) {
@@ -302,7 +306,7 @@ public class ImageProcessor {
         int own = label[y * w + x];
         if (own < 0) continue;
         int ownL = (cent[own][0] * 299 + cent[own][1] * 587 + cent[own][2] * 114) / 1000;
-        if (ownL < 60 || ownL > 235) continue;
+        if (ownL < 70 || ownL > 235) continue;
         int best = own, bestC = 0;
         for (int dy = -1; dy <= 1; dy++) {
           for (int dx = -1; dx <= 1; dx++) {
@@ -453,15 +457,16 @@ public class ImageProcessor {
   }
 
   public static Bitmap renderPreview(List<ColorLayer> layers, int targetW, int targetH) {
-    int scale = Math.max(2, Math.min(4, 520 / Math.max(1, Math.max(targetW, targetH))));
+    int scale = Math.max(2, Math.min(4, 640 / Math.max(1, Math.max(targetW, targetH))));
     int outW = Math.max(120, targetW * scale), outH = Math.max(120, targetH * scale);
     Bitmap preview = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
     Canvas canvas = new Canvas(preview);
     canvas.drawColor(Color.WHITE);
     Paint paint = new Paint();
+    paint.setAntiAlias(false);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeCap(Paint.Cap.SQUARE);
-    paint.setStrokeWidth(Math.max(1.5f, scale * 1.05f));
+    paint.setStrokeWidth(Math.max(1.5f, scale * 1.02f));
     for (ColorLayer layer : layers) {
       if (!layer.enabled) continue;
       paint.setColor(layer.color);
