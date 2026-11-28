@@ -87,23 +87,23 @@
                 android:id="@+id/cbIgnoreWhite"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="Bỏ qua nền trắng / trong suốt"
+                android:checked="false"
+                android:text="Bỏ nền trắng thuần viền ngoài (chỉ bật cho ảnh nền trắng)"
                 android:textColor="@color/textLight"
                 android:textSize="12sp" />
             <TextView
                 android:id="@+id/txtColorCountLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Số lượng màu tách từ ảnh: 16 màu"
+                android:text="Số lượng màu tách (tối đa 64 màu / 8K): 24 màu"
                 android:textColor="@color/textLight"
                 android:textSize="12sp" />
             <SeekBar
                 android:id="@+id/seekColorCount"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:max="22"
-                android:progress="14" />
+                android:max="62"
+                android:progress="22" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -297,7 +297,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Độ chi tiết / Ngưỡng nét: 165"
+                android:text="Độ chi tiết / Ngưỡng nét: 125"
                 android:textColor="@color/textLight"
                 android:textSize="12sp" />
             <SeekBar
@@ -305,13 +305,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:max="255"
-                android:progress="165" />
+                android:progress="125" />
             <TextView
                 android:id="@+id/txtSpeedLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Thời gian vẽ mỗi nét: 28ms"
+                android:text="Thời gian vẽ mỗi nét: 26ms"
                 android:textColor="@color/textLight"
                 android:textSize="12sp" />
             <SeekBar
@@ -319,7 +319,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:max="100"
-                android:progress="28" />
+                android:progress="26" />
         </LinearLayout>
         <Button
             android:id="@+id/btnLoad"
