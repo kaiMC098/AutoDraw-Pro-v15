@@ -126,10 +126,19 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Biên dịch APK (debug)
+      - name: Tạo khóa ký chuẩn v1+v2+v3 (tương thích Android 7–15)
+        run: |
+          if [ ! -f app/myautodraw-release.jks ]; then
+            keytool -genkeypair -v -keystore app/myautodraw-release.jks \
+              -alias myautodraw -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass myautodraw_release_key -keypass myautodraw_release_key \
+              -dname "CN=MyAutoDraw Pro, OU=OpenSource, O=ellenjoe023, L=VN, S=VN, C=VN"
+          fi
+
+      - name: Biên dịch APK (Release ký v1+v2+v3)
         run: |
           set -o pipefail
-          gradle assembleDebug --no-daemon --console=plain --stacktrace 2>&1 | tee build.log
+          gradle assembleRelease --no-daemon --console=plain --stacktrace 2>&1 | tee build.log
 
       - name: Tóm tắt nguyên nhân lỗi
         if: failure()
@@ -142,13 +151,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Đổi tên APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk MyAutoDraw-Pro-v15.apk
+        run: cp app/build/outputs/apk/release/app-release.apk MyAutoDraw-Pro-v19.apk
 
       - name: Tải APK lên Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MyAutoDraw-Pro-v15-APK
-          path: MyAutoDraw-Pro-v15.apk
+          name: MyAutoDraw-Pro-v19-APK
+          path: MyAutoDraw-Pro-v19.apk
           if-no-files-found: error
 
       - name: Đăng APK lên mục Releases
@@ -156,7 +165,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v15-build-${{ github.run_number }}-${{ github.run_attempt }}"
-          gh release create "$TAG" MyAutoDraw-Pro-v15.apk \
-            --title "MyAutoDraw Pro v15 (@ellenjoe023) - $TAG" \
-            --notes "APK v15 tự động build từ commit ${{ github.sha }}"
+          TAG="v19-build-${{ github.run_number }}-${{ github.run_attempt }}"
+          gh release create "$TAG" MyAutoDraw-Pro-v19.apk \
+            --title "MyAutoDraw Pro v19 Supreme (@ellenjoe023) - $TAG" \
+            --notes "APK v19 Supreme (ký chuẩn v1+v2+v3) tự động build từ commit ${{ github.sha }}"
