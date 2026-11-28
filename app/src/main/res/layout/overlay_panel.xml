@@ -66,6 +66,46 @@
             android:textSize="11sp" />
     </LinearLayout>
     <LinearLayout
+        android:id="@+id/layoutAutoCalibBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:background="#0F172A"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="5dp"
+        android:visibility="gone">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Căn 3 vạch H-S-V:"
+            android:textColor="#FBBF24"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+        <Button
+            android:id="@+id/btnTestAutoColor"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="6dp"
+            android:backgroundTint="#D97706"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="Test màu"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp" />
+        <Button
+            android:id="@+id/btnResetMarkers"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:backgroundTint="#475569"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="Căn lại"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
+    <LinearLayout
         android:id="@+id/layoutManualPickBar"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

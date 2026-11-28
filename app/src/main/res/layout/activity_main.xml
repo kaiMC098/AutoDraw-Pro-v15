@@ -311,7 +311,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Thời gian vẽ mỗi nét: 26ms"
+                android:text="Thời gian vẽ mỗi nét: 28ms"
                 android:textColor="@color/textLight"
                 android:textSize="12sp" />
             <SeekBar
@@ -319,7 +319,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:max="100"
-                android:progress="26" />
+                android:progress="28" />
         </LinearLayout>
         <Button
             android:id="@+id/btnLoad"
