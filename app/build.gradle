@@ -10,13 +10,34 @@ android {
         applicationId "com.myautodraw"
         minSdk 24
         targetSdk 34
-        versionCode 18
-        versionName "18.0"
+        versionCode 19
+        versionName "19.0"
+    }
+
+    signingConfigs {
+        release {
+            def ks = file("myautodraw-release.jks")
+            if (ks.exists()) {
+                storeFile ks
+                storePassword "myautodraw_release_key"
+                keyAlias "myautodraw"
+                keyPassword "myautodraw_release_key"
+            }
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+        debug {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig file("myautodraw-release.jks").exists() ? signingConfigs.release : signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
