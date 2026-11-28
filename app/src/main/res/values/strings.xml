@@ -1,4 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-<string name="app_name">MyAutoDraw Pro v15</string>
-<string name="service_description">MyAutoDraw Pro v15 (@ellenjoe023) - Tự động vẽ màu theo từng hàng 1 pixel.</string>
+    <string name="app_name">MyAutoDraw Pro v19</string>
+    <string name="service_description">MyAutoDraw Pro v19 (@ellenjoe023) - Tự động vẽ tranh chi tiết cao, nét mịn, kín màu không chấm trắng.</string>
 </resources>
