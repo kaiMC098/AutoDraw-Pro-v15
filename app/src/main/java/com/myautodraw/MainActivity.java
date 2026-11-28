@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends AppCompatActivity {
     private ImageView imgPreview;
@@ -31,6 +32,7 @@ public class MainActivity extends AppCompatActivity {
     private Bitmap originalBitmap;
     private ColorLayer selectedLayer;
     private boolean updatingHsvUi = false;
+    private final AtomicInteger taskGen = new AtomicInteger(0);
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private final ActivityResultLauncher<String> pickImageLauncher =
@@ -75,6 +77,7 @@ public class MainActivity extends AppCompatActivity {
 
         rgColorPickMode.setOnCheckedChangeListener((g, id) -> {
             DrawRepository.setAutoHsvBuilda(id == R.id.rbPickAuto);
+            AutoDrawService.syncMode();
         });
 
         btnToggleAllColors.setOnClickListener(v -> {
@@ -117,7 +120,7 @@ public class MainActivity extends AppCompatActivity {
         });
         seekSpeed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar s, int p, boolean u) {
-                long ms = Math.max(10L, p);
+                long ms = Math.max(12L, p);
                 DrawRepository.setStrokeDurationMs(ms);
                 txtSpeedLabel.setText("Thời gian vẽ mỗi nét: " + ms + "ms");
             }
@@ -131,10 +134,9 @@ public class MainActivity extends AppCompatActivity {
                 selectedLayer.updateFromHsv(seekHue.getProgress(), seekSat.getProgress(), seekVal.getProgress());
                 refreshSelectedColorDisplay();
                 refreshSwatchesUi();
-                refreshPreviewOnly();
             }
             public void onStartTrackingTouch(SeekBar s) {}
-            public void onStopTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) { refreshPreviewOnly(); }
         };
         seekHue.setOnSeekBarChangeListener(hsvListener);
         seekSat.setOnSeekBarChangeListener(hsvListener);
@@ -174,10 +176,28 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadBitmapFromUri(Uri uri) {
         if (uri == null) return;
+        final int gen = taskGen.incrementAndGet();
         executor.execute(() -> {
-            try (InputStream is = getContentResolver().openInputStream(uri)) {
-                Bitmap bmp = BitmapFactory.decodeStream(is);
-                if (bmp != null) { originalBitmap = bmp; runOnUiThread(this::reprocessImage); }
+            try {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                try (InputStream is1 = getContentResolver().openInputStream(uri)) {
+                    BitmapFactory.decodeStream(is1, null, bounds);
+                }
+                if (gen != taskGen.get() || bounds.outWidth <= 0 || bounds.outHeight <= 0) return;
+                int sample = 1;
+                while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 1024) sample *= 2;
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inSampleSize = sample;
+                opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                Bitmap bmp;
+                try (InputStream is2 = getContentResolver().openInputStream(uri)) {
+                    bmp = BitmapFactory.decodeStream(is2, null, opts);
+                }
+                if (bmp != null && gen == taskGen.get()) {
+                    originalBitmap = bmp;
+                    runOnUiThread(this::reprocessImage);
+                }
             } catch (Exception e) {
                 runOnUiThread(() -> Toast.makeText(this, "Lỗi đọc ảnh: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
@@ -186,12 +206,19 @@ public class MainActivity extends AppCompatActivity {
 
     private void reprocessImage() {
         if (originalBitmap == null) return;
-        int mode = rbColor.isChecked() ? ImageProcessor.MODE_COLOR : (rbEdge.isChecked() ? ImageProcessor.MODE_EDGE : ImageProcessor.MODE_THRESHOLD);
-        txtInfo.setText("Đang làm sắc nét ảnh & tách màu từng pixel...");
+        final int gen = taskGen.incrementAndGet();
+        final int mode = rbColor.isChecked() ? ImageProcessor.MODE_COLOR : (rbEdge.isChecked() ? ImageProcessor.MODE_EDGE : ImageProcessor.MODE_THRESHOLD);
+        final int thresh = seekThresh.getProgress();
+        final int colors = seekColorCount.getProgress() + 2;
+        final boolean ignoreW = cbIgnoreWhite.isChecked();
+        txtInfo.setText("Đang làm sắc nét & tối ưu đường vẽ...");
         executor.execute(() -> {
-            ImageProcessor.ProcessResult res = ImageProcessor.process(originalBitmap, mode, seekThresh.getProgress(), seekColorCount.getProgress() + 2, cbIgnoreWhite.isChecked());
+            if (gen != taskGen.get()) return;
+            ImageProcessor.ProcessResult res = ImageProcessor.process(originalBitmap, mode, thresh, colors, ignoreW);
+            if (gen != taskGen.get()) return;
             DrawRepository.setLayers(res.layers, (float) originalBitmap.getWidth() / originalBitmap.getHeight(), res.gridW, res.gridH);
             runOnUiThread(() -> {
+                if (gen != taskGen.get()) return;
                 imgPreview.setImageBitmap(res.previewBitmap);
                 selectedLayer = res.layers.isEmpty() ? null : res.layers.get(0);
                 refreshSelectedColorDisplay();
@@ -256,5 +283,5 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onDestroy() { super.onDestroy(); executor.shutdownNow(); }
+    protected void onDestroy() { super.onDestroy(); taskGen.incrementAndGet(); executor.shutdownNow(); }
 }

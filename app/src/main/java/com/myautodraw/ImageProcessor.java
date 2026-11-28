@@ -5,7 +5,8 @@ import java.util.*;
 
 public class ImageProcessor {
   public static final int MODE_COLOR = 0, MODE_EDGE = 1, MODE_THRESHOLD = 2;
-  private static final int MAX_EDGE_PTS = 26;
+  private static final int MAX_ZIGZAG_PTS = 16;
+  private static final int MAX_EDGE_PTS = 24;
   private static final int[] DX = {1, 1, 0, -1, -1, -1, 0, 1};
   private static final int[] DY = {0, 1, 1, 1, 0, -1, -1, -1};
 
@@ -19,19 +20,21 @@ public class ImageProcessor {
   }
 
   public static ProcessResult process(Bitmap src, int mode, int thresh, int maxColors, boolean ignoreWhite) {
-    int maxDim = (mode == MODE_COLOR) ? (150 + Math.round((thresh / 255f) * 150f)) : 280;
+    int maxDim = (mode == MODE_COLOR) ? (120 + Math.round((thresh / 255f) * 110f)) : 240;
     float sc = (float) maxDim / Math.max(src.getWidth(), src.getHeight());
     int w = Math.max(24, Math.round(src.getWidth() * sc));
     int h = Math.max(24, Math.round(src.getHeight() * sc));
     Bitmap baseBmp = Bitmap.createScaledBitmap(src, w, h, true);
     Bitmap sharpBmp = sharpenAndSnapEdges(baseBmp, w, h);
+    if (baseBmp != src && baseBmp != sharpBmp) baseBmp.recycle();
 
-    return (mode == MODE_COLOR)
-        ? processColorExact1Px(sharpBmp, w, h, maxColors, ignoreWhite)
-        : processMono1Px(sharpBmp, w, h, thresh, mode == MODE_EDGE);
+    ProcessResult res = (mode == MODE_COLOR)
+        ? processColorHybrid(sharpBmp, w, h, maxColors, ignoreWhite)
+        : processMonoHybrid(sharpBmp, w, h, thresh, mode == MODE_EDGE);
+    if (sharpBmp != src) sharpBmp.recycle();
+    return res;
   }
 
-  // Làm sắc nét thích ứng + khóa biên Shock Filter để xóa mờ viền khi thu nhỏ mà không tạo viền đen giả
   private static Bitmap sharpenAndSnapEdges(Bitmap src, int w, int h) {
     if (w < 6 || h < 6) return src;
     int[] px = new int[w * h];
@@ -45,7 +48,7 @@ public class ImageProcessor {
       }
     }
     double meanG = cnt > 0 ? sumG / cnt : 14.0;
-    float strength = (float) (0.72 + 0.75 * Math.max(0.0, Math.min(1.0, (16.0 - meanG) / 11.0)));
+    float strength = (float) (0.75 + 0.75 * Math.max(0.0, Math.min(1.0, (16.0 - meanG) / 11.0)));
 
     int[] out = new int[w * h];
     int[] wt = {1, 2, 1, 2, 4, 2, 1, 2, 1};
@@ -71,8 +74,8 @@ public class ImageProcessor {
         float sb = b0 + strength * (b0 - bb / 16f);
 
         int amp = Math.max(maxR - minR, Math.max(maxG - minG, maxB - minB));
-        if (amp > 24) {
-          float snap = Math.min(0.58f, (amp - 24f) / 95f);
+        if (amp > 22) {
+          float snap = Math.min(0.62f, (amp - 22f) / 90f);
           float tr = (r0 >= 0.5f * (minR + maxR)) ? maxR : minR;
           float tg = (g0 >= 0.5f * (minG + maxG)) ? maxG : minG;
           float tb = (b0 >= 0.5f * (minB + maxB)) ? maxB : minB;
@@ -122,7 +125,7 @@ public class ImageProcessor {
     return bg;
   }
 
-  private static ProcessResult processColorExact1Px(Bitmap bmp, int w, int h, int maxColors, boolean ignoreWhite) {
+  private static ProcessResult processColorHybrid(Bitmap bmp, int w, int h, int maxColors, boolean ignoreWhite) {
     int nPx = w * h;
     int[] pixels = new int[nPx];
     bmp.getPixels(pixels, 0, w, 0, 0, w, h);
@@ -180,12 +183,18 @@ public class ImageProcessor {
       }
       if (area == 0) continue;
       int col = Color.rgb((int) (sr / area), (int) (sg / area), (int) (sb / area));
-      boolean important = lum(col) < 70 || lum(col) > 235;
-      int minArea = important ? 1 : Math.max(2, nPx / 12000);
+      int l = lum(col);
+      boolean isDark = l < 72;
+      boolean isHighlight = l > 235;
+      int minArea = (isDark || isHighlight) ? 1 : Math.max(2, nPx / 10000);
       if (area < minArea) continue;
 
       ColorLayer layer = new ColorLayer(col);
-      layer.strokes = scanTopDown1Px(map, w, h);
+      if (isDark) {
+        layer.strokes = buildDarkLineAndFillStrokes(map, w, h);
+      } else {
+        layer.strokes = scanZigZagSafe(map, w, h);
+      }
       int pts = 0;
       for (List<PointF> st : layer.strokes) pts += st.size();
       layer.pointCount = pts;
@@ -210,29 +219,100 @@ public class ImageProcessor {
   private static int layerStage(int col, int area, int highlightLimit) {
     int l = lum(col);
     if (l > 235 && area <= highlightLimit) return 2;
-    if (l < 70) return 1;
+    if (l < 72) return 1;
     return 0;
   }
 
-  private static List<List<PointF>> scanTopDown1Px(boolean[][] map, int w, int h) {
+  // Lớp nét tối (lông mi, viền tóc, mắt): đi nét vector mượt cho nét mảnh + tô zig-zag cho mảng tối dày
+  private static List<List<PointF>> buildDarkLineAndFillStrokes(boolean[][] map, int w, int h) {
+    boolean[][] thinMask = new boolean[h][w];
+    boolean[][] thickMask = new boolean[h][w];
+    boolean hasThin = false, hasThick = false;
+
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        if (!map[y][x]) continue;
+        boolean interior = y > 0 && y < h - 1 && x > 0 && x < w - 1
+            && map[y - 1][x] && map[y + 1][x] && map[y][x - 1] && map[y][x + 1];
+        if (interior) {
+          thickMask[y][x] = true; hasThick = true;
+        } else {
+          thinMask[y][x] = true; hasThin = true;
+        }
+      }
+    }
+
+    List<List<PointF>> all = new ArrayList<>();
+    if (hasThick) {
+      all.addAll(scanZigZagSafe(thickMask, w, h));
+    }
+    if (hasThin) {
+      thin(thinMask, w, h);
+      all.addAll(traceLines(thinMask, w, h, true));
+    }
+    return all;
+  }
+
+  // Quét zig-zag an toàn: nối liền các hàng kề nhau khi biên trái/phải lệch <= 2px (giảm 4-6 lần số lệnh chạm, không lem ra ngoài)
+  private static List<List<PointF>> scanZigZagSafe(boolean[][] map, int w, int h) {
+    boolean[][] vis = new boolean[h][w];
     List<List<PointF>> strokes = new ArrayList<>();
     for (int y = 0; y < h; y++) {
       int x = 0;
       while (x < w) {
-        if (!map[y][x]) { x++; continue; }
+        if (!map[y][x] || vis[y][x]) { x++; continue; }
         int x0 = x;
-        while (x + 1 < w && map[y][x + 1]) x++;
-        float py = (y + 0.5f) / h;
-        List<PointF> line = new ArrayList<>(2);
-        if (x0 == x) {
-          line.add(new PointF((x0 + 0.45f) / w, py));
-          line.add(new PointF((x0 + 0.55f) / w, py));
-        } else {
-          line.add(new PointF((x0 + 0.5f) / w, py));
-          line.add(new PointF((x + 0.5f) / w, py));
+        while (x + 1 < w && map[y][x + 1] && !vis[y][x + 1]) x++;
+        int x1 = x;
+        for (int k = x0; k <= x1; k++) vis[y][k] = true;
+
+        float py0 = (y + 0.5f) / h;
+        List<PointF> pts = new ArrayList<>(MAX_ZIGZAG_PTS);
+        if (x0 == x1) {
+          pts.add(new PointF((x0 + 0.45f) / w, py0));
+          pts.add(new PointF((x0 + 0.55f) / w, py0));
+          strokes.add(pts);
+          x = x1 + 1;
+          continue;
         }
-        strokes.add(line);
-        x++;
+
+        pts.add(new PointF((x0 + 0.5f) / w, py0));
+        pts.add(new PointF((x1 + 0.5f) / w, py0));
+
+        int curY = y, curL = x0, curR = x1;
+        boolean goLeft = true;
+        while (curY + 1 < h && pts.size() + 2 <= MAX_ZIGZAG_PTS) {
+          int ny = curY + 1;
+          int searchStart = Math.max(0, curL - 2);
+          int searchEnd = Math.min(w - 1, curR + 2);
+          int foundL = -1, foundR = -1;
+          for (int rx = searchStart; rx <= searchEnd; rx++) {
+            if (map[ny][rx] && !vis[ny][rx]) {
+              int a = rx;
+              while (a > 0 && map[ny][a - 1] && !vis[ny][a - 1]) a--;
+              int b = rx;
+              while (b + 1 < w && map[ny][b + 1] && !vis[ny][b + 1]) b++;
+              if (Math.abs(a - curL) <= 2 && Math.abs(b - curR) <= 2) {
+                foundL = a; foundR = b;
+              }
+              break;
+            }
+          }
+          if (foundL < 0) break;
+          for (int k = foundL; k <= foundR; k++) vis[ny][k] = true;
+          float npy = (ny + 0.5f) / h;
+          if (goLeft) {
+            pts.add(new PointF((foundR + 0.5f) / w, npy));
+            pts.add(new PointF((foundL + 0.5f) / w, npy));
+          } else {
+            pts.add(new PointF((foundL + 0.5f) / w, npy));
+            pts.add(new PointF((foundR + 0.5f) / w, npy));
+          }
+          goLeft = !goLeft;
+          curY = ny; curL = foundL; curR = foundR;
+        }
+        strokes.add(pts);
+        x = x1 + 1;
       }
     }
     return strokes;
@@ -247,10 +327,10 @@ public class ImageProcessor {
     int m = sub.size();
 
     int placed = 0;
-    int darkIdx = -1, minLum = 70, darkCount = 0;
+    int darkIdx = -1, minLum = 72, darkCount = 0;
     for (int idx : sub) {
       int l = (r[idx] * 299 + g[idx] * 587 + b[idx] * 114) / 1000;
-      if (l < 70) { darkCount++; if (l < minLum) { minLum = l; darkIdx = idx; } }
+      if (l < 72) { darkCount++; if (l < minLum) { minLum = l; darkIdx = idx; } }
     }
     if (darkIdx >= 0 && darkCount >= 2 && placed < k) {
       cent[placed][0] = r[darkIdx]; cent[placed][1] = g[darkIdx]; cent[placed][2] = b[darkIdx]; placed++;
@@ -306,7 +386,7 @@ public class ImageProcessor {
         int own = label[y * w + x];
         if (own < 0) continue;
         int ownL = (cent[own][0] * 299 + cent[own][1] * 587 + cent[own][2] * 114) / 1000;
-        if (ownL < 70 || ownL > 235) continue;
+        if (ownL < 72 || ownL > 235) continue;
         int best = own, bestC = 0;
         for (int dy = -1; dy <= 1; dy++) {
           for (int dx = -1; dx <= 1; dx++) {
@@ -326,7 +406,7 @@ public class ImageProcessor {
     return next;
   }
 
-  private static ProcessResult processMono1Px(Bitmap bmp, int w, int h, int thresh, boolean edgeMode) {
+  private static ProcessResult processMonoHybrid(Bitmap bmp, int w, int h, int thresh, boolean edgeMode) {
     int[][] gray = new int[h][w];
     for (int y = 0; y < h; y++)
       for (int x = 0; x < w; x++) {
@@ -335,11 +415,11 @@ public class ImageProcessor {
       }
     List<List<PointF>> strokes;
     if (edgeMode) {
-      strokes = traceLines(extractEdges(gray, w, h, thresh), w, h);
+      strokes = traceLines(extractEdges(gray, w, h, thresh), w, h, false);
     } else {
       boolean[][] map = new boolean[h][w];
       for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) map[y][x] = gray[y][x] < thresh;
-      strokes = scanTopDown1Px(map, w, h);
+      strokes = scanZigZagSafe(map, w, h);
     }
     ColorLayer layer = new ColorLayer(Color.BLACK);
     layer.strokes = strokes;
@@ -389,7 +469,7 @@ public class ImageProcessor {
     }
   }
 
-  private static List<List<PointF>> traceLines(boolean[][] map, int w, int h) {
+  private static List<List<PointF>> traceLines(boolean[][] map, int w, int h, boolean keepSingleDots) {
     boolean[][] vis = new boolean[h][w];
     List<List<PointF>> out = new ArrayList<>();
     for (int pass = 0; pass < 2; pass++) {
@@ -401,7 +481,17 @@ public class ImageProcessor {
             int nx = x + DX[d], ny = y + DY[d];
             if (nx >= 0 && nx < w && ny >= 0 && ny < h && map[ny][nx]) nb++;
           }
-          if (nb == 0) { vis[y][x] = true; continue; }
+          if (nb == 0) {
+            vis[y][x] = true;
+            if (keepSingleDots) {
+              List<PointF> dot = new ArrayList<>(2);
+              float py = (y + 0.5f) / h;
+              dot.add(new PointF((x + 0.45f) / w, py));
+              dot.add(new PointF((x + 0.55f) / w, py));
+              out.add(dot);
+            }
+            continue;
+          }
           if (pass == 0 && nb != 1) continue;
           List<PointF> s = walkSmooth(map, vis, x, y, w, h);
           for (int i = 0; i < s.size() - 1; i += MAX_EDGE_PTS - 1)
@@ -457,7 +547,7 @@ public class ImageProcessor {
   }
 
   public static Bitmap renderPreview(List<ColorLayer> layers, int targetW, int targetH) {
-    int scale = Math.max(2, Math.min(4, 640 / Math.max(1, Math.max(targetW, targetH))));
+    int scale = Math.max(2, Math.min(4, 600 / Math.max(1, Math.max(targetW, targetH))));
     int outW = Math.max(120, targetW * scale), outH = Math.max(120, targetH * scale);
     Bitmap preview = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
     Canvas canvas = new Canvas(preview);
@@ -466,15 +556,17 @@ public class ImageProcessor {
     paint.setAntiAlias(false);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeCap(Paint.Cap.SQUARE);
+    paint.setStrokeJoin(Paint.Join.MITER);
     paint.setStrokeWidth(Math.max(1.5f, scale * 1.02f));
     for (ColorLayer layer : layers) {
       if (!layer.enabled) continue;
       paint.setColor(layer.color);
       for (List<PointF> st : layer.strokes) {
-        for (int i = 0; i < st.size() - 1; i++) {
-          PointF p1 = st.get(i), p2 = st.get(i + 1);
-          canvas.drawLine(p1.x * outW, p1.y * outH, p2.x * outW, p2.y * outH, paint);
-        }
+        if (st.size() < 2) continue;
+        Path p = new Path();
+        p.moveTo(st.get(0).x * outW, st.get(0).y * outH);
+        for (int i = 1; i < st.size(); i++) p.lineTo(st.get(i).x * outW, st.get(i).y * outH);
+        canvas.drawPath(p, paint);
       }
     }
     return preview;

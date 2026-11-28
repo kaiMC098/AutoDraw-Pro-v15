@@ -5,7 +5,7 @@ import java.util.List;
 
 public class DrawRepository {
     private static List<ColorLayer> colorLayers = new ArrayList<>();
-    private static long strokeDurationMs = 24L;
+    private static long strokeDurationMs = 28L;
     private static float aspectRatio = 1.0f;
     private static int gridW = 160, gridH = 160;
     private static boolean autoHsvBuilda = false;
@@ -41,7 +41,7 @@ public class DrawRepository {
     public static int getGridW() { return gridW; }
     public static int getGridH() { return gridH; }
     public static long getStrokeDurationMs() { return strokeDurationMs; }
-    public static void setStrokeDurationMs(long ms) { strokeDurationMs = Math.max(10L, ms); }
+    public static void setStrokeDurationMs(long ms) { strokeDurationMs = Math.max(12L, ms); }
     public static boolean isAutoHsvBuilda() { return autoHsvBuilda; }
     public static void setAutoHsvBuilda(boolean enabled) { autoHsvBuilda = enabled; }
 }
