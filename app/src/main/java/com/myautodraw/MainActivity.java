@@ -75,7 +75,7 @@ public class MainActivity extends AppCompatActivity {
         // Đồng bộ ngay giá trị mặc định trên thanh kéo vào DrawRepository khi mở app
         DrawRepository.setStrokeDurationMs(Math.max(12L, seekSpeed.getProgress()));
         txtColorCountLabel.setText("Số lượng màu tách (tối đa 64 màu / 8K): " + (seekColorCount.getProgress() + 2) + " màu");
-        txtThreshLabel.setText("Độ chi tiết / Ngưỡng nét: " + seekThresh.getProgress());
+        txtThreshLabel.setText("Độ sắc nét / Chi tiết ảnh (kéo phải = càng nét): " + seekThresh.getProgress());
         txtSpeedLabel.setText("Thời gian vẽ mỗi nét: " + DrawRepository.getStrokeDurationMs() + "ms");
 
         if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
@@ -119,7 +119,7 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar s) { reprocessImage(); }
         });
         seekThresh.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int p, boolean u) { txtThreshLabel.setText("Độ chi tiết / Ngưỡng nét: " + p); }
+            public void onProgressChanged(SeekBar s, int p, boolean u) { txtThreshLabel.setText("Độ sắc nét / Chi tiết ảnh (kéo phải = càng nét): " + p); }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) { reprocessImage(); }
         });

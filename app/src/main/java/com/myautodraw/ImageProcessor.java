@@ -19,74 +19,93 @@ public class ImageProcessor {
   }
 
   public static ProcessResult process(Bitmap src, int mode, int thresh, int maxColors, boolean ignoreWhite) {
-    // Chế độ Đủ màu: lưới 90px -> 360px (hỗ trợ chi tiết siêu nét cho ảnh HD/4K/8K)
-    int maxDim = (mode == MODE_COLOR) ? (90 + Math.round((thresh / 255f) * 270f)) : 280;
-    float sc = (float) maxDim / Math.max(src.getWidth(), src.getHeight());
-    int w = Math.max(24, Math.round(src.getWidth() * sc));
-    int h = Math.max(24, Math.round(src.getHeight() * sc));
-    Bitmap baseBmp = Bitmap.createScaledBitmap(src, w, h, true);
-    Bitmap cleanBmp = edgePreservingPreProcess(baseBmp, w, h);
-    if (baseBmp != src && baseBmp != cleanBmp) baseBmp.recycle();
+    int sw = Math.max(1, src.getWidth()), sh = Math.max(1, src.getHeight());
+    int w, h;
+    if (mode == MODE_COLOR) {
+      // Cân bằng theo diện tích thay vì ép cạnh dài -> ảnh ngang 16:9 hoặc dọc vẫn cực sắc nét (tối đa 560px)
+      double targetGeo = 140.0 + (thresh / 255.0) * 280.0;
+      double ratio = (double) sw / sh;
+      w = (int) Math.round(targetGeo * Math.sqrt(ratio));
+      h = (int) Math.round(targetGeo / Math.sqrt(ratio));
+      int maxCap = 560;
+      if (Math.max(w, h) > maxCap) {
+        double s = (double) maxCap / Math.max(w, h);
+        w = (int) Math.round(w * s);
+        h = (int) Math.round(h * s);
+      }
+      if (w > sw || h > sh) {
+        double s = Math.min((double) sw / w, (double) sh / h);
+        w = (int) Math.round(w * s);
+        h = (int) Math.round(h * s);
+      }
+    } else {
+      float sc = 320f / Math.max(sw, sh);
+      w = Math.round(sw * sc);
+      h = Math.round(sh * sc);
+    }
+    w = Math.max(24, w);
+    h = Math.max(24, h);
+
+    Bitmap scaledBmp = progressiveDownscale(src, w, h);
+    Bitmap crispBmp = crispEnhanceNoBlur(scaledBmp, w, h);
+    if (scaledBmp != src && scaledBmp != crispBmp) scaledBmp.recycle();
 
     ProcessResult res = (mode == MODE_COLOR)
-        ? processColor8K(cleanBmp, w, h, maxColors, ignoreWhite)
-        : processMono(cleanBmp, w, h, thresh, mode == MODE_EDGE);
-    if (cleanBmp != src) cleanBmp.recycle();
+        ? processColorUltraSharp(crispBmp, w, h, maxColors, ignoreWhite)
+        : processMono(crispBmp, w, h, thresh, mode == MODE_EDGE);
+    if (crispBmp != src) crispBmp.recycle();
     return res;
   }
 
-  // Lọc mịn vùng phẳng (giữ biên sắc) + tăng nét thích ứng + Shock Filter khóa biên
-  private static Bitmap edgePreservingPreProcess(Bitmap src, int w, int h) {
+  // Thu nhỏ nhiều nhịp (mỗi nhịp tối đa 2x) giúp giữ nguyên nét mắt, tóc mảnh và chữ nhỏ thay vì bị mờ nhòe
+  private static Bitmap progressiveDownscale(Bitmap src, int targetW, int targetH) {
+    int cw = src.getWidth(), ch = src.getHeight();
+    if (cw == targetW && ch == targetH) return src;
+    Bitmap cur = src;
+    while (cw / 2 >= targetW && ch / 2 >= targetH) {
+      cw = Math.max(targetW, cw / 2);
+      ch = Math.max(targetH, ch / 2);
+      Bitmap next = Bitmap.createScaledBitmap(cur, cw, ch, true);
+      if (cur != src) cur.recycle();
+      cur = next;
+    }
+    if (cw != targetW || ch != targetH) {
+      Bitmap fin = Bitmap.createScaledBitmap(cur, targetW, targetH, true);
+      if (cur != src) cur.recycle();
+      cur = fin;
+    }
+    return cur;
+  }
+
+  // Làm sắc nét trực tiếp không làm mờ chi tiết mảnh 1px (mắt, lông mi, hình xăm, chữ)
+  private static Bitmap crispEnhanceNoBlur(Bitmap src, int w, int h) {
     if (w < 6 || h < 6) return src;
     int n = w * h;
     int[] px = new int[n];
     src.getPixels(px, 0, w, 0, 0, w, h);
 
-    int[] denoised = new int[n];
-    for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
-        int idx = y * w + x, orig = px[idx], a = Color.alpha(orig);
-        if (x == 0 || y == 0 || x == w - 1 || y == h - 1 || a < 16) { denoised[idx] = orig; continue; }
-        int r0 = Color.red(orig), g0 = Color.green(orig), b0 = Color.blue(orig);
-        float sr = r0 * 4f, sg = g0 * 4f, sb = b0 * 4f, swt = 4f;
-        for (int dy = -1; dy <= 1; dy++) {
-          for (int dx = -1; dx <= 1; dx++) {
-            if (dx == 0 && dy == 0) continue;
-            int p = px[(y + dy) * w + (x + dx)];
-            int pr = Color.red(p), pg = Color.green(p), pb = Color.blue(p);
-            int diff = Math.abs(pr - r0) + Math.abs(pg - g0) + Math.abs(pb - b0);
-            if (diff < 36) {
-              float wt = (dx == 0 || dy == 0 ? 1.4f : 0.7f) * (1f - diff / 40f);
-              sr += pr * wt; sg += pg * wt; sb += pb * wt; swt += wt;
-            }
-          }
-        }
-        denoised[idx] = Color.argb(a, Math.round(sr / swt), Math.round(sg / swt), Math.round(sb / swt));
-      }
-    }
-
     double sumG = 0.0; int cnt = 0;
     for (int y = 1; y < h - 1; y++) {
       for (int x = 1; x < w - 1; x++) {
-        int c0 = denoised[y * w + x], cx = denoised[y * w + x + 1], cy = denoised[(y + 1) * w + x];
+        int c0 = px[y * w + x], cx = px[y * w + x + 1], cy = px[(y + 1) * w + x];
         sumG += Math.hypot(lum(cx) - lum(c0), lum(cy) - lum(c0)); cnt++;
       }
     }
-    double meanG = cnt > 0 ? sumG / cnt : 14.0;
-    float strength = (float) (0.72 + 0.72 * Math.max(0.0, Math.min(1.0, (16.0 - meanG) / 11.0)));
+    double meanG = cnt > 0 ? sumG / cnt : 16.0;
+    float strength = (float) (0.55 + 0.65 * Math.max(0.0, Math.min(1.0, (16.0 - meanG) / 12.0)));
 
     int[] out = new int[n];
     int[] wt = {1, 2, 1, 2, 4, 2, 1, 2, 1};
     for (int y = 0; y < h; y++) {
       for (int x = 0; x < w; x++) {
-        int idx = y * w + x, orig = denoised[idx], a = Color.alpha(orig);
+        int idx = y * w + x, orig = px[idx], a = Color.alpha(orig);
         if (x == 0 || y == 0 || x == w - 1 || y == h - 1 || a < 16) { out[idx] = orig; continue; }
         int r0 = Color.red(orig), g0 = Color.green(orig), b0 = Color.blue(orig);
         int rb = 0, gb = 0, bb = 0, k = 0;
         int minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0;
         for (int dy = -1; dy <= 1; dy++) {
           for (int dx = -1; dx <= 1; dx++) {
-            int p = denoised[(y + dy) * w + (x + dx)], ww = wt[k++];
+            int p = px[(y + dy) * w + (x + dx)], ww = wt[k++];
             int pr = Color.red(p), pg = Color.green(p), pb = Color.blue(p);
             rb += pr * ww; gb += pg * ww; bb += pb * ww;
             if (pr < minR) minR = pr; if (pr > maxR) maxR = pr;
@@ -98,19 +117,9 @@ public class ImageProcessor {
         float sg = g0 + strength * (g0 - gb / 16f);
         float sb = b0 + strength * (b0 - bb / 16f);
 
-        int amp = Math.max(maxR - minR, Math.max(maxG - minG, maxB - minB));
-        if (amp > 22) {
-          float snap = Math.min(0.58f, (amp - 22f) / 90f);
-          float tr = (r0 >= 0.5f * (minR + maxR)) ? maxR : minR;
-          float tg = (g0 >= 0.5f * (minG + maxG)) ? maxG : minG;
-          float tb = (b0 >= 0.5f * (minB + maxB)) ? maxB : minB;
-          sr = sr * (1f - snap) + tr * snap;
-          sg = sg * (1f - snap) + tg * snap;
-          sb = sb * (1f - snap) + tb * snap;
-        }
-        int nr = clamp(Math.round(sr), Math.max(0, minR - 5), Math.min(255, maxR + 5));
-        int ng = clamp(Math.round(sg), Math.max(0, minG - 5), Math.min(255, maxG + 5));
-        int nb = clamp(Math.round(sb), Math.max(0, minB - 5), Math.min(255, maxB + 5));
+        int nr = clamp(Math.round(sr), Math.max(0, minR - 4), Math.min(255, maxR + 4));
+        int ng = clamp(Math.round(sg), Math.max(0, minG - 4), Math.min(255, maxG + 4));
+        int nb = clamp(Math.round(sb), Math.max(0, minB - 4), Math.min(255, maxB + 4));
         out[idx] = Color.argb(a, nr, ng, nb);
       }
     }
@@ -127,7 +136,6 @@ public class ImageProcessor {
     return minC > 248 && (maxC - minC) <= 6;
   }
 
-  // Chỉ bỏ nền trắng tinh trung tính nối liền viền ngoài -> KHÔNG bao giờ ăn lẹm hào quang vàng/kem hay mắt trắng
   private static boolean[] detectOuterPureWhiteBg(int[] r, int[] g, int[] b, int[] alpha, int w, int h) {
     boolean[] bg = new boolean[w * h];
     int[] q = new int[w * h];
@@ -156,7 +164,7 @@ public class ImageProcessor {
     return bg;
   }
 
-  private static ProcessResult processColor8K(Bitmap bmp, int w, int h, int maxColors, boolean ignoreWhite) {
+  private static ProcessResult processColorUltraSharp(Bitmap bmp, int w, int h, int maxColors, boolean ignoreWhite) {
     int nPx = w * h;
     int[] pixels = new int[nPx];
     bmp.getPixels(pixels, 0, w, 0, 0, w, h);
@@ -176,9 +184,8 @@ public class ImageProcessor {
     }
     if (validCount == 0) return new ProcessResult(renderPreview(new ArrayList<>(), w, h), new ArrayList<>(), 0, 0, w, h);
 
-    // Lấy mẫu phân tầng tối đa 10.000 điểm để chạy K-means tối đa 64 màu siêu nhanh (<0.3s) trên mọi điện thoại
-    int step = Math.max(1, validCount / 10000);
-    List<Integer> trainSamples = new ArrayList<>(Math.min(validCount, 10500));
+    int step = Math.max(1, validCount / 12000);
+    List<Integer> trainSamples = new ArrayList<>(Math.min(validCount, 12500));
     int seen = 0;
     for (int i = 0; i < nPx; i++) {
       if (!valid[i]) continue;
@@ -207,7 +214,7 @@ public class ImageProcessor {
       if (!moved) break;
     }
 
-    // Bảng tra cứu màu nhanh 5-bit (32x32x32) giúp gán toàn bộ ảnh 360x360 x 64 màu chỉ tốn ~5ms
+    // Bảng tra nhanh 5-bit (32x32x32 LUT): gán ảnh 560x310 x 64 màu siêu nhanh không lag máy
     int[] lut = new int[32768];
     Arrays.fill(lut, -1);
     int[] label = new int[nPx];
@@ -221,7 +228,7 @@ public class ImageProcessor {
       }
       label[i] = best;
     }
-    label = cleanSpecklesPreserveDetails(label, cent, w, h);
+    label = cleanOnlyIsolatedDots(label, cent, w, h);
 
     int[] areas = new int[k];
     int[] avgColors = new int[k];
@@ -246,7 +253,6 @@ public class ImageProcessor {
       return Integer.compare(areas[b2], areas[a]);
     });
 
-    // Bản đồ thứ bậc vẽ để lót khe 1px kín tuyệt đối xuống dưới các lớp vẽ sau -> không còn lỗ trắng/đen!
     int[] clusterRank = new int[k];
     Arrays.fill(clusterRank, -1);
     for (int rank = 0; rank < activeClusters.size(); rank++) clusterRank[activeClusters.get(rank)] = rank;
@@ -270,7 +276,6 @@ public class ImageProcessor {
         }
       }
 
-      // Lót kín khe 1px vào vùng thuộc các lớp vẽ sau (rankMap > rank) để tranh kín màu 100% như ảnh gốc
       boolean[][] drawMap = exactMap;
       if (rank < numLayers - 1 && !isHighlight) {
         drawMap = new boolean[h][w];
@@ -285,8 +290,7 @@ public class ImageProcessor {
         }
       }
 
-      // Vẽ từng hàng ngang thẳng tuyệt đối (2 điểm/nét) theo chiều luân phiên trái-phải -> KHÔNG bị biến dạng zig-zag trên Builda!
-      float bleed = isHighlight ? 0.28f : 0.45f;
+      float bleed = isHighlight ? 0.25f : 0.42f;
       List<List<PointF>> strokes = scanStraightExact1Px(drawMap, w, h, bleed);
 
       if (!strokes.isEmpty()) {
@@ -305,12 +309,11 @@ public class ImageProcessor {
 
   private static int layerStage(int col, int area, int highlightLimit) {
     int l = lum(col);
-    if (l > 235 && area <= highlightLimit) return 2; // Đốm sáng mắt, ánh sáng nhỏ vẽ cuối cùng
-    if (l < 62) return 1; // Nét viền tối / tóc đen vẽ gọn trên nền sáng
-    return 0; // Mảng nền, áo, da, bóng vẽ theo diện tích lớn -> nhỏ
+    if (l > 235 && area <= highlightLimit) return 2;
+    if (l < 62) return 1;
+    return 0;
   }
 
-  // Quét từng hàng 1px chuẩn xác 100% ảnh gốc (mỗi nét là 1 đoạn thẳng 2 điểm, không bẻ góc gây lem trên Builda)
   private static List<List<PointF>> scanStraightExact1Px(boolean[][] map, int w, int h, float bleed) {
     List<List<PointF>> strokes = new ArrayList<>();
     for (int y = 0; y < h; y++) {
@@ -348,8 +351,8 @@ public class ImageProcessor {
   private static int[][] seedCentroidsSmart(List<Integer> samples, int[] r, int[] g, int[] b, int k) {
     int n = samples.size();
     int[][] cent = new int[k][3];
-    int step = Math.max(1, n / 4000);
-    List<Integer> sub = new ArrayList<>(Math.min(n, 4500));
+    int step = Math.max(1, n / 4500);
+    List<Integer> sub = new ArrayList<>(Math.min(n, 5000));
     for (int i = 0; i < n; i += step) sub.add(samples.get(i));
     int m = sub.size();
 
@@ -406,7 +409,8 @@ public class ImageProcessor {
     return cent;
   }
 
-  private static int[] cleanSpecklesPreserveDetails(int[] label, int[][] cent, int w, int h) {
+  // Chỉ xóa điểm nhiễu đơn lẻ hoàn toàn (7/8 hàng xóm cùng màu khác) -> giữ trọn nét mảnh, chữ nhỏ & mắt
+  private static int[] cleanOnlyIsolatedDots(int[] label, int[][] cent, int w, int h) {
     int[] next = label.clone();
     for (int y = 1; y < h - 1; y++) {
       for (int x = 1; x < w - 1; x++) {
@@ -414,20 +418,17 @@ public class ImageProcessor {
         if (own < 0) continue;
         int ownL = (cent[own][0] * 299 + cent[own][1] * 587 + cent[own][2] * 114) / 1000;
         if (ownL < 65 || ownL > 235) continue;
-        int best = own, bestC = 0;
+        int firstOther = -1, sameOther = 0;
         for (int dy = -1; dy <= 1; dy++) {
           for (int dx = -1; dx <= 1; dx++) {
             if (dx == 0 && dy == 0) continue;
             int l = label[(y + dy) * w + (x + dx)];
             if (l < 0 || l == own) continue;
-            int c = 0;
-            for (int ey = -1; ey <= 1; ey++)
-              for (int ex = -1; ex <= 1; ex++)
-                if ((ex != 0 || ey != 0) && label[(y + ey) * w + (x + ex)] == l) c++;
-            if (c > bestC) { bestC = c; best = l; }
+            if (firstOther < 0) { firstOther = l; sameOther = 1; }
+            else if (l == firstOther) sameOther++;
           }
         }
-        if (best != own && bestC >= 6) next[y * w + x] = best;
+        if (firstOther >= 0 && sameOther >= 7) next[y * w + x] = firstOther;
       }
     }
     return next;
@@ -592,16 +593,17 @@ public class ImageProcessor {
     return best;
   }
 
-  // Dựng ảnh xem trước trên nền caro nhạt (giống Builda) để thấy chính xác tuyệt đối vùng nào được tô, vùng nào trong suốt
+  // Dựng ảnh xem trước sắc nét độ phân giải cao (lên tới ~1120px) trên nền caro nhạt
   public static Bitmap renderPreview(List<ColorLayer> layers, int targetW, int targetH) {
-    int scale = Math.max(2, Math.min(4, 680 / Math.max(1, Math.max(targetW, targetH))));
+    int maxSide = Math.max(1, Math.max(targetW, targetH));
+    int scale = Math.max(2, Math.min(4, 1120 / maxSide));
     int outW = Math.max(120, targetW * scale), outH = Math.max(120, targetH * scale);
     Bitmap preview = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
     Canvas canvas = new Canvas(preview);
     canvas.drawColor(0xFFF1F5F9);
     Paint bgP = new Paint();
     bgP.setColor(0xFFE2E8F0);
-    int cell = Math.max(12, Math.min(outW, outH) / 24);
+    int cell = Math.max(14, Math.min(outW, outH) / 22);
     for (int y = 0; y < outH; y += cell) {
       for (int x = ((y / cell) % 2) * cell; x < outW; x += cell * 2) {
         canvas.drawRect(x, y, Math.min(outW, x + cell), Math.min(outH, y + cell), bgP);
@@ -612,7 +614,7 @@ public class ImageProcessor {
     paint.setAntiAlias(false);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeCap(Paint.Cap.SQUARE);
-    paint.setStrokeWidth(Math.max(1.5f, scale * 1.05f));
+    paint.setStrokeWidth(Math.max(1.5f, scale * 1.02f));
     for (ColorLayer layer : layers) {
       if (!layer.enabled) continue;
       paint.setColor(layer.color);
