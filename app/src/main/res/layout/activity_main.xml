@@ -105,6 +105,21 @@
                 android:max="62"
                 android:progress="22" />
             <TextView
+                android:id="@+id/txtThreshLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Độ sắc nét / Chi tiết ảnh (kéo phải = càng nét): 170"
+                android:textColor="#38BDF8"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+            <SeekBar
+                android:id="@+id/seekThresh"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="255"
+                android:progress="170" />
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
@@ -292,20 +307,6 @@
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
-            <TextView
-                android:id="@+id/txtThreshLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Độ chi tiết / Ngưỡng nét: 125"
-                android:textColor="@color/textLight"
-                android:textSize="12sp" />
-            <SeekBar
-                android:id="@+id/seekThresh"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:max="255"
-                android:progress="125" />
             <TextView
                 android:id="@+id/txtSpeedLabel"
                 android:layout_width="wrap_content"
