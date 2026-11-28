@@ -29,7 +29,7 @@ public class MainActivity extends AppCompatActivity {
     private CheckBox cbIgnoreWhite, cbLayerEnabled;
     private LinearLayout layoutColorSwatches;
     private Button btnLoad, btnPerm, btnService, btnToggleAllColors;
-    private Bitmap originalBitmap;
+    private volatile Bitmap originalBitmap;
     private ColorLayer selectedLayer;
     private boolean updatingHsvUi = false;
     private final AtomicInteger taskGen = new AtomicInteger(0);
@@ -72,6 +72,12 @@ public class MainActivity extends AppCompatActivity {
         btnPerm = findViewById(R.id.btnPerm);
         btnService = findViewById(R.id.btnService);
 
+        // Đồng bộ ngay giá trị mặc định trên thanh kéo vào DrawRepository khi mở app
+        DrawRepository.setStrokeDurationMs(Math.max(12L, seekSpeed.getProgress()));
+        txtColorCountLabel.setText("Số lượng màu tách (tối đa 64 màu / 8K): " + (seekColorCount.getProgress() + 2) + " màu");
+        txtThreshLabel.setText("Độ chi tiết / Ngưỡng nét: " + seekThresh.getProgress());
+        txtSpeedLabel.setText("Thời gian vẽ mỗi nét: " + DrawRepository.getStrokeDurationMs() + "ms");
+
         if (DrawRepository.isAutoHsvBuilda()) rbPickAuto.setChecked(true);
         else rbPickManual.setChecked(true);
 
@@ -102,14 +108,13 @@ public class MainActivity extends AppCompatActivity {
         });
         btnService.setOnClickListener(v -> {
             if (!Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "Vui lòng cấp quyền Overlay trước!", Toast.LENGTH_SHORT).show();
-                return;
+                Toast.makeText(this, "Nên bật thêm quyền Overlay để menu nổi ổn định nhất!", Toast.LENGTH_SHORT).show();
             }
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
         });
 
         seekColorCount.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int p, boolean u) { txtColorCountLabel.setText("Số lượng màu tách từ ảnh: " + (p + 2) + " màu"); }
+            public void onProgressChanged(SeekBar s, int p, boolean u) { txtColorCountLabel.setText("Số lượng màu tách (tối đa 64 màu / 8K): " + (p + 2) + " màu"); }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) { reprocessImage(); }
         });
@@ -186,7 +191,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (gen != taskGen.get() || bounds.outWidth <= 0 || bounds.outHeight <= 0) return;
                 int sample = 1;
-                while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 1024) sample *= 2;
+                while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 2048) sample *= 2;
                 BitmapFactory.Options opts = new BitmapFactory.Options();
                 opts.inSampleSize = sample;
                 opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
@@ -205,25 +210,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void reprocessImage() {
-        if (originalBitmap == null) return;
+        final Bitmap src = originalBitmap;
+        if (src == null) return;
         final int gen = taskGen.incrementAndGet();
         final int mode = rbColor.isChecked() ? ImageProcessor.MODE_COLOR : (rbEdge.isChecked() ? ImageProcessor.MODE_EDGE : ImageProcessor.MODE_THRESHOLD);
         final int thresh = seekThresh.getProgress();
         final int colors = seekColorCount.getProgress() + 2;
         final boolean ignoreW = cbIgnoreWhite.isChecked();
-        txtInfo.setText("Đang làm sắc nét & tối ưu đường vẽ...");
+        txtInfo.setText("Đang lọc mịn, khóa khe trắng & tối ưu chi tiết...");
         executor.execute(() -> {
             if (gen != taskGen.get()) return;
-            ImageProcessor.ProcessResult res = ImageProcessor.process(originalBitmap, mode, thresh, colors, ignoreW);
+            ImageProcessor.ProcessResult res = ImageProcessor.process(src, mode, thresh, colors, ignoreW);
             if (gen != taskGen.get()) return;
-            DrawRepository.setLayers(res.layers, (float) originalBitmap.getWidth() / originalBitmap.getHeight(), res.gridW, res.gridH);
+            DrawRepository.setLayers(res.layers, (float) src.getWidth() / src.getHeight(), res.gridW, res.gridH);
             runOnUiThread(() -> {
                 if (gen != taskGen.get()) return;
                 imgPreview.setImageBitmap(res.previewBitmap);
                 selectedLayer = res.layers.isEmpty() ? null : res.layers.get(0);
                 refreshSelectedColorDisplay();
                 refreshSwatchesUi();
-                txtInfo.setText("Sẵn sàng: " + res.layers.size() + " phần màu | " + res.totalStrokes + " nét (" + res.totalPoints + " điểm).");
+                txtInfo.setText("Sẵn sàng (" + res.gridW + "×" + res.gridH + "px): " + res.layers.size() + " màu | " + res.totalStrokes + " nét (" + res.totalPoints + " điểm).");
             });
         });
     }

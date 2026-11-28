@@ -7,7 +7,7 @@ public class DrawRepository {
     private static List<ColorLayer> colorLayers = new ArrayList<>();
     private static long strokeDurationMs = 28L;
     private static float aspectRatio = 1.0f;
-    private static int gridW = 160, gridH = 160;
+    private static int gridW = 240, gridH = 240;
     private static boolean autoHsvBuilda = false;
 
     public static int boxX = 120, boxY = 340, boxW = 540, boxH = 540;
@@ -24,7 +24,7 @@ public class DrawRepository {
     }
 
     public static synchronized void setLayers(List<ColorLayer> layers, float ratio) {
-        setLayers(layers, ratio, 160, Math.max(24, Math.round(160f / (ratio > 0 ? ratio : 1f))));
+        setLayers(layers, ratio, 240, Math.max(24, Math.round(240f / (ratio > 0 ? ratio : 1f))));
     }
 
     public static synchronized List<ColorLayer> getLayers() { return colorLayers; }

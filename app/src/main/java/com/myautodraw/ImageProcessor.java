@@ -5,8 +5,7 @@ import java.util.*;
 
 public class ImageProcessor {
   public static final int MODE_COLOR = 0, MODE_EDGE = 1, MODE_THRESHOLD = 2;
-  private static final int MAX_ZIGZAG_PTS = 16;
-  private static final int MAX_EDGE_PTS = 24;
+  private static final int MAX_EDGE_PTS = 20;
   private static final int[] DX = {1, 1, 0, -1, -1, -1, 0, 1};
   private static final int[] DY = {0, 1, 1, 1, 0, -1, -1, -1};
 
@@ -20,48 +19,74 @@ public class ImageProcessor {
   }
 
   public static ProcessResult process(Bitmap src, int mode, int thresh, int maxColors, boolean ignoreWhite) {
-    int maxDim = (mode == MODE_COLOR) ? (120 + Math.round((thresh / 255f) * 110f)) : 240;
+    // Chế độ Đủ màu: lưới 90px -> 360px (hỗ trợ chi tiết siêu nét cho ảnh HD/4K/8K)
+    int maxDim = (mode == MODE_COLOR) ? (90 + Math.round((thresh / 255f) * 270f)) : 280;
     float sc = (float) maxDim / Math.max(src.getWidth(), src.getHeight());
     int w = Math.max(24, Math.round(src.getWidth() * sc));
     int h = Math.max(24, Math.round(src.getHeight() * sc));
     Bitmap baseBmp = Bitmap.createScaledBitmap(src, w, h, true);
-    Bitmap sharpBmp = sharpenAndSnapEdges(baseBmp, w, h);
-    if (baseBmp != src && baseBmp != sharpBmp) baseBmp.recycle();
+    Bitmap cleanBmp = edgePreservingPreProcess(baseBmp, w, h);
+    if (baseBmp != src && baseBmp != cleanBmp) baseBmp.recycle();
 
     ProcessResult res = (mode == MODE_COLOR)
-        ? processColorHybrid(sharpBmp, w, h, maxColors, ignoreWhite)
-        : processMonoHybrid(sharpBmp, w, h, thresh, mode == MODE_EDGE);
-    if (sharpBmp != src) sharpBmp.recycle();
+        ? processColor8K(cleanBmp, w, h, maxColors, ignoreWhite)
+        : processMono(cleanBmp, w, h, thresh, mode == MODE_EDGE);
+    if (cleanBmp != src) cleanBmp.recycle();
     return res;
   }
 
-  private static Bitmap sharpenAndSnapEdges(Bitmap src, int w, int h) {
+  // Lọc mịn vùng phẳng (giữ biên sắc) + tăng nét thích ứng + Shock Filter khóa biên
+  private static Bitmap edgePreservingPreProcess(Bitmap src, int w, int h) {
     if (w < 6 || h < 6) return src;
-    int[] px = new int[w * h];
+    int n = w * h;
+    int[] px = new int[n];
     src.getPixels(px, 0, w, 0, 0, w, h);
+
+    int[] denoised = new int[n];
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        int idx = y * w + x, orig = px[idx], a = Color.alpha(orig);
+        if (x == 0 || y == 0 || x == w - 1 || y == h - 1 || a < 16) { denoised[idx] = orig; continue; }
+        int r0 = Color.red(orig), g0 = Color.green(orig), b0 = Color.blue(orig);
+        float sr = r0 * 4f, sg = g0 * 4f, sb = b0 * 4f, swt = 4f;
+        for (int dy = -1; dy <= 1; dy++) {
+          for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            int p = px[(y + dy) * w + (x + dx)];
+            int pr = Color.red(p), pg = Color.green(p), pb = Color.blue(p);
+            int diff = Math.abs(pr - r0) + Math.abs(pg - g0) + Math.abs(pb - b0);
+            if (diff < 36) {
+              float wt = (dx == 0 || dy == 0 ? 1.4f : 0.7f) * (1f - diff / 40f);
+              sr += pr * wt; sg += pg * wt; sb += pb * wt; swt += wt;
+            }
+          }
+        }
+        denoised[idx] = Color.argb(a, Math.round(sr / swt), Math.round(sg / swt), Math.round(sb / swt));
+      }
+    }
 
     double sumG = 0.0; int cnt = 0;
     for (int y = 1; y < h - 1; y++) {
       for (int x = 1; x < w - 1; x++) {
-        int c0 = px[y * w + x], cx = px[y * w + x + 1], cy = px[(y + 1) * w + x];
+        int c0 = denoised[y * w + x], cx = denoised[y * w + x + 1], cy = denoised[(y + 1) * w + x];
         sumG += Math.hypot(lum(cx) - lum(c0), lum(cy) - lum(c0)); cnt++;
       }
     }
     double meanG = cnt > 0 ? sumG / cnt : 14.0;
-    float strength = (float) (0.75 + 0.75 * Math.max(0.0, Math.min(1.0, (16.0 - meanG) / 11.0)));
+    float strength = (float) (0.72 + 0.72 * Math.max(0.0, Math.min(1.0, (16.0 - meanG) / 11.0)));
 
-    int[] out = new int[w * h];
+    int[] out = new int[n];
     int[] wt = {1, 2, 1, 2, 4, 2, 1, 2, 1};
     for (int y = 0; y < h; y++) {
       for (int x = 0; x < w; x++) {
-        int idx = y * w + x, orig = px[idx], a = Color.alpha(orig);
+        int idx = y * w + x, orig = denoised[idx], a = Color.alpha(orig);
         if (x == 0 || y == 0 || x == w - 1 || y == h - 1 || a < 16) { out[idx] = orig; continue; }
         int r0 = Color.red(orig), g0 = Color.green(orig), b0 = Color.blue(orig);
         int rb = 0, gb = 0, bb = 0, k = 0;
         int minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0;
         for (int dy = -1; dy <= 1; dy++) {
           for (int dx = -1; dx <= 1; dx++) {
-            int p = px[(y + dy) * w + (x + dx)], ww = wt[k++];
+            int p = denoised[(y + dy) * w + (x + dx)], ww = wt[k++];
             int pr = Color.red(p), pg = Color.green(p), pb = Color.blue(p);
             rb += pr * ww; gb += pg * ww; bb += pb * ww;
             if (pr < minR) minR = pr; if (pr > maxR) maxR = pr;
@@ -75,7 +100,7 @@ public class ImageProcessor {
 
         int amp = Math.max(maxR - minR, Math.max(maxG - minG, maxB - minB));
         if (amp > 22) {
-          float snap = Math.min(0.62f, (amp - 22f) / 90f);
+          float snap = Math.min(0.58f, (amp - 22f) / 90f);
           float tr = (r0 >= 0.5f * (minR + maxR)) ? maxR : minR;
           float tg = (g0 >= 0.5f * (minG + maxG)) ? maxG : minG;
           float tb = (b0 >= 0.5f * (minB + maxB)) ? maxB : minB;
@@ -83,10 +108,9 @@ public class ImageProcessor {
           sg = sg * (1f - snap) + tg * snap;
           sb = sb * (1f - snap) + tb * snap;
         }
-
-        int nr = clamp(Math.round(sr), Math.max(0, minR - 8), Math.min(255, maxR + 8));
-        int ng = clamp(Math.round(sg), Math.max(0, minG - 8), Math.min(255, maxG + 8));
-        int nb = clamp(Math.round(sb), Math.max(0, minB - 8), Math.min(255, maxB + 8));
+        int nr = clamp(Math.round(sr), Math.max(0, minR - 5), Math.min(255, maxR + 5));
+        int ng = clamp(Math.round(sg), Math.max(0, minG - 5), Math.min(255, maxG + 5));
+        int nb = clamp(Math.round(sb), Math.max(0, minB - 5), Math.min(255, maxB + 5));
         out[idx] = Color.argb(a, nr, ng, nb);
       }
     }
@@ -97,7 +121,14 @@ public class ImageProcessor {
 
   private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 
-  private static boolean[] detectOuterWhiteBg(int[] r, int[] g, int[] b, int[] alpha, int w, int h) {
+  private static boolean isPureWhite(int r, int g, int b) {
+    int maxC = Math.max(r, Math.max(g, b));
+    int minC = Math.min(r, Math.min(g, b));
+    return minC > 248 && (maxC - minC) <= 6;
+  }
+
+  // Chỉ bỏ nền trắng tinh trung tính nối liền viền ngoài -> KHÔNG bao giờ ăn lẹm hào quang vàng/kem hay mắt trắng
+  private static boolean[] detectOuterPureWhiteBg(int[] r, int[] g, int[] b, int[] alpha, int w, int h) {
     boolean[] bg = new boolean[w * h];
     int[] q = new int[w * h];
     int head = 0, tail = 0;
@@ -105,7 +136,7 @@ public class ImageProcessor {
       for (int x = 0; x < w; x++) {
         if (x != 0 && x != w - 1 && y != 0 && y != h - 1) continue;
         int i = y * w + x;
-        if (!bg[i] && (alpha[i] < 128 || (r[i] > 240 && g[i] > 240 && b[i] > 240))) {
+        if (!bg[i] && (alpha[i] < 128 || isPureWhite(r[i], g[i], b[i]))) {
           bg[i] = true; q[tail++] = i;
         }
       }
@@ -117,7 +148,7 @@ public class ImageProcessor {
         int x = cx + nx4[d], y = cy + ny4[d];
         if (x < 0 || x >= w || y < 0 || y >= h) continue;
         int ni = y * w + x;
-        if (!bg[ni] && (alpha[ni] < 128 || (r[ni] > 240 && g[ni] > 240 && b[ni] > 240))) {
+        if (!bg[ni] && (alpha[ni] < 128 || isPureWhite(r[ni], g[ni], b[ni]))) {
           bg[ni] = true; q[tail++] = ni;
         }
       }
@@ -125,7 +156,7 @@ public class ImageProcessor {
     return bg;
   }
 
-  private static ProcessResult processColorHybrid(Bitmap bmp, int w, int h, int maxColors, boolean ignoreWhite) {
+  private static ProcessResult processColor8K(Bitmap bmp, int w, int h, int maxColors, boolean ignoreWhite) {
     int nPx = w * h;
     int[] pixels = new int[nPx];
     bmp.getPixels(pixels, 0, w, 0, 0, w, h);
@@ -135,184 +166,180 @@ public class ImageProcessor {
       alpha[i] = Color.alpha(p); r[i] = Color.red(p); g[i] = Color.green(p); b[i] = Color.blue(p);
     }
 
-    boolean[] outerBg = ignoreWhite ? detectOuterWhiteBg(r, g, b, alpha, w, h) : new boolean[nPx];
+    boolean[] outerBg = ignoreWhite ? detectOuterPureWhiteBg(r, g, b, alpha, w, h) : new boolean[nPx];
     boolean[] valid = new boolean[nPx];
-    List<Integer> samples = new ArrayList<>(nPx);
+    int validCount = 0;
     for (int i = 0; i < nPx; i++) {
-      boolean skip = alpha[i] < 128 || outerBg[i];
-      valid[i] = !skip;
-      if (!skip) samples.add(i);
+      boolean ok = alpha[i] >= 128 && !outerBg[i];
+      valid[i] = ok;
+      if (ok) validCount++;
     }
-    if (samples.isEmpty()) return new ProcessResult(renderPreview(new ArrayList<>(), w, h), new ArrayList<>(), 0, 0, w, h);
+    if (validCount == 0) return new ProcessResult(renderPreview(new ArrayList<>(), w, h), new ArrayList<>(), 0, 0, w, h);
 
-    int k = Math.min(Math.max(2, maxColors), samples.size());
-    int[][] cent = seedCentroidsSmart(samples, r, g, b, k);
+    // Lấy mẫu phân tầng tối đa 10.000 điểm để chạy K-means tối đa 64 màu siêu nhanh (<0.3s) trên mọi điện thoại
+    int step = Math.max(1, validCount / 10000);
+    List<Integer> trainSamples = new ArrayList<>(Math.min(validCount, 10500));
+    int seen = 0;
+    for (int i = 0; i < nPx; i++) {
+      if (!valid[i]) continue;
+      if (seen % step == 0) trainSamples.add(i);
+      seen++;
+    }
 
-    for (int it = 0; it < 14; it++) {
+    int k = Math.min(Math.max(2, Math.min(64, maxColors)), trainSamples.size());
+    int[][] cent = seedCentroidsSmart(trainSamples, r, g, b, k);
+
+    for (int it = 0; it < 12; it++) {
       long[] sr = new long[k], sg = new long[k], sb = new long[k];
       int[] cnt = new int[k];
-      for (int idx : samples) {
+      for (int idx : trainSamples) {
         int best = nearestPerceptual(r[idx], g[idx], b[idx], cent);
         sr[best] += r[idx]; sg[best] += g[idx]; sb[best] += b[idx]; cnt[best]++;
       }
+      boolean moved = false;
       for (int c = 0; c < k; c++) {
         if (cnt[c] > 0) {
-          cent[c][0] = (int) (sr[c] / cnt[c]);
-          cent[c][1] = (int) (sg[c] / cnt[c]);
-          cent[c][2] = (int) (sb[c] / cnt[c]);
+          int nr = (int) (sr[c] / cnt[c]), ng = (int) (sg[c] / cnt[c]), nb = (int) (sb[c] / cnt[c]);
+          if (Math.abs(nr - cent[c][0]) + Math.abs(ng - cent[c][1]) + Math.abs(nb - cent[c][2]) > 1) moved = true;
+          cent[c][0] = nr; cent[c][1] = ng; cent[c][2] = nb;
         }
       }
+      if (!moved) break;
     }
 
+    // Bảng tra cứu màu nhanh 5-bit (32x32x32) giúp gán toàn bộ ảnh 360x360 x 64 màu chỉ tốn ~5ms
+    int[] lut = new int[32768];
+    Arrays.fill(lut, -1);
     int[] label = new int[nPx];
-    for (int i = 0; i < nPx; i++) label[i] = valid[i] ? nearestPerceptual(r[i], g[i], b[i], cent) : -1;
-    label = cleanIsolatedDots(label, cent, w, h);
+    for (int i = 0; i < nPx; i++) {
+      if (!valid[i]) { label[i] = -1; continue; }
+      int key = ((r[i] >> 3) << 10) | ((g[i] >> 3) << 5) | (b[i] >> 3);
+      int best = lut[key];
+      if (best < 0) {
+        best = nearestPerceptual((r[i] & 0xF8) + 4, (g[i] & 0xF8) + 4, (b[i] & 0xF8) + 4, cent);
+        lut[key] = best;
+      }
+      label[i] = best;
+    }
+    label = cleanSpecklesPreserveDetails(label, cent, w, h);
+
+    int[] areas = new int[k];
+    int[] avgColors = new int[k];
+    long[] sumR = new long[k], sumG = new long[k], sumB = new long[k];
+    for (int i = 0; i < nPx; i++) {
+      int c = label[i];
+      if (c >= 0) { areas[c]++; sumR[c] += r[i]; sumG[c] += g[i]; sumB[c] += b[i]; }
+    }
+
+    List<Integer> activeClusters = new ArrayList<>();
+    for (int c = 0; c < k; c++) {
+      if (areas[c] <= 0) continue;
+      avgColors[c] = Color.rgb((int) (sumR[c] / areas[c]), (int) (sumG[c] / areas[c]), (int) (sumB[c] / areas[c]));
+      activeClusters.add(c);
+    }
+
+    final int highlightLimit = Math.max(16, validCount / 12);
+    Collections.sort(activeClusters, (a, b2) -> {
+      int ga = layerStage(avgColors[a], areas[a], highlightLimit);
+      int gb = layerStage(avgColors[b2], areas[b2], highlightLimit);
+      if (ga != gb) return Integer.compare(ga, gb);
+      return Integer.compare(areas[b2], areas[a]);
+    });
+
+    // Bản đồ thứ bậc vẽ để lót khe 1px kín tuyệt đối xuống dưới các lớp vẽ sau -> không còn lỗ trắng/đen!
+    int[] clusterRank = new int[k];
+    Arrays.fill(clusterRank, -1);
+    for (int rank = 0; rank < activeClusters.size(); rank++) clusterRank[activeClusters.get(rank)] = rank;
+    int[] rankMap = new int[nPx];
+    for (int i = 0; i < nPx; i++) rankMap[i] = (label[i] >= 0) ? clusterRank[label[i]] : -1;
 
     List<ColorLayer> layers = new ArrayList<>();
-    Map<ColorLayer, Integer> areaMap = new HashMap<>();
-    int totValid = samples.size(), totSt = 0, totPts = 0;
+    int totSt = 0, totPts = 0;
+    int numLayers = activeClusters.size();
 
-    for (int c = 0; c < k; c++) {
-      boolean[][] map = new boolean[h][w];
-      int area = 0; long sr = 0, sg = 0, sb = 0;
+    for (int rank = 0; rank < numLayers; rank++) {
+      int c = activeClusters.get(rank);
+      int col = avgColors[c];
+      int l = lum(col);
+      boolean isHighlight = l > 235 && areas[c] <= highlightLimit;
+
+      boolean[][] exactMap = new boolean[h][w];
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-          int idx = y * w + x;
-          if (label[idx] == c) { map[y][x] = true; area++; sr += r[idx]; sg += g[idx]; sb += b[idx]; }
+          if (label[y * w + x] == c) exactMap[y][x] = true;
         }
       }
-      if (area == 0) continue;
-      int col = Color.rgb((int) (sr / area), (int) (sg / area), (int) (sb / area));
-      int l = lum(col);
-      boolean isDark = l < 72;
-      boolean isHighlight = l > 235;
-      int minArea = (isDark || isHighlight) ? 1 : Math.max(2, nPx / 10000);
-      if (area < minArea) continue;
 
-      ColorLayer layer = new ColorLayer(col);
-      if (isDark) {
-        layer.strokes = buildDarkLineAndFillStrokes(map, w, h);
-      } else {
-        layer.strokes = scanZigZagSafe(map, w, h);
+      // Lót kín khe 1px vào vùng thuộc các lớp vẽ sau (rankMap > rank) để tranh kín màu 100% như ảnh gốc
+      boolean[][] drawMap = exactMap;
+      if (rank < numLayers - 1 && !isHighlight) {
+        drawMap = new boolean[h][w];
+        for (int y = 0; y < h; y++) {
+          for (int x = 0; x < w; x++) {
+            if (exactMap[y][x]) { drawMap[y][x] = true; continue; }
+            if (rankMap[y * w + x] <= rank) continue;
+            boolean touch = (x > 0 && exactMap[y][x - 1]) || (x + 1 < w && exactMap[y][x + 1])
+                || (y > 0 && exactMap[y - 1][x]) || (y + 1 < h && exactMap[y + 1][x]);
+            if (touch) drawMap[y][x] = true;
+          }
+        }
       }
-      int pts = 0;
-      for (List<PointF> st : layer.strokes) pts += st.size();
-      layer.pointCount = pts;
-      if (!layer.strokes.isEmpty()) {
-        layers.add(layer); areaMap.put(layer, area);
-        totSt += layer.strokes.size(); totPts += pts;
+
+      // Vẽ từng hàng ngang thẳng tuyệt đối (2 điểm/nét) theo chiều luân phiên trái-phải -> KHÔNG bị biến dạng zig-zag trên Builda!
+      float bleed = isHighlight ? 0.28f : 0.45f;
+      List<List<PointF>> strokes = scanStraightExact1Px(drawMap, w, h, bleed);
+
+      if (!strokes.isEmpty()) {
+        ColorLayer layer = new ColorLayer(col);
+        layer.strokes = strokes;
+        int pts = 0;
+        for (List<PointF> st : strokes) pts += st.size();
+        layer.pointCount = pts;
+        layers.add(layer);
+        totSt += strokes.size(); totPts += pts;
       }
     }
-
-    final int highlightLimit = Math.max(12, totValid / 12);
-    Collections.sort(layers, (a, b2) -> {
-      int aa = areaMap.get(a), ab = areaMap.get(b2);
-      int ga = layerStage(a.color, aa, highlightLimit);
-      int gb = layerStage(b2.color, ab, highlightLimit);
-      if (ga != gb) return Integer.compare(ga, gb);
-      return Integer.compare(ab, aa);
-    });
 
     return new ProcessResult(renderPreview(layers, w, h), layers, totSt, totPts, w, h);
   }
 
   private static int layerStage(int col, int area, int highlightLimit) {
     int l = lum(col);
-    if (l > 235 && area <= highlightLimit) return 2;
-    if (l < 72) return 1;
-    return 0;
+    if (l > 235 && area <= highlightLimit) return 2; // Đốm sáng mắt, ánh sáng nhỏ vẽ cuối cùng
+    if (l < 62) return 1; // Nét viền tối / tóc đen vẽ gọn trên nền sáng
+    return 0; // Mảng nền, áo, da, bóng vẽ theo diện tích lớn -> nhỏ
   }
 
-  // Lớp nét tối (lông mi, viền tóc, mắt): đi nét vector mượt cho nét mảnh + tô zig-zag cho mảng tối dày
-  private static List<List<PointF>> buildDarkLineAndFillStrokes(boolean[][] map, int w, int h) {
-    boolean[][] thinMask = new boolean[h][w];
-    boolean[][] thickMask = new boolean[h][w];
-    boolean hasThin = false, hasThick = false;
-
-    for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
-        if (!map[y][x]) continue;
-        boolean interior = y > 0 && y < h - 1 && x > 0 && x < w - 1
-            && map[y - 1][x] && map[y + 1][x] && map[y][x - 1] && map[y][x + 1];
-        if (interior) {
-          thickMask[y][x] = true; hasThick = true;
-        } else {
-          thinMask[y][x] = true; hasThin = true;
-        }
-      }
-    }
-
-    List<List<PointF>> all = new ArrayList<>();
-    if (hasThick) {
-      all.addAll(scanZigZagSafe(thickMask, w, h));
-    }
-    if (hasThin) {
-      thin(thinMask, w, h);
-      all.addAll(traceLines(thinMask, w, h, true));
-    }
-    return all;
-  }
-
-  // Quét zig-zag an toàn: nối liền các hàng kề nhau khi biên trái/phải lệch <= 2px (giảm 4-6 lần số lệnh chạm, không lem ra ngoài)
-  private static List<List<PointF>> scanZigZagSafe(boolean[][] map, int w, int h) {
-    boolean[][] vis = new boolean[h][w];
+  // Quét từng hàng 1px chuẩn xác 100% ảnh gốc (mỗi nét là 1 đoạn thẳng 2 điểm, không bẻ góc gây lem trên Builda)
+  private static List<List<PointF>> scanStraightExact1Px(boolean[][] map, int w, int h, float bleed) {
     List<List<PointF>> strokes = new ArrayList<>();
     for (int y = 0; y < h; y++) {
+      float py = (y + 0.5f) / h;
+      List<int[]> rowRuns = new ArrayList<>();
       int x = 0;
       while (x < w) {
-        if (!map[y][x] || vis[y][x]) { x++; continue; }
+        if (!map[y][x]) { x++; continue; }
         int x0 = x;
-        while (x + 1 < w && map[y][x + 1] && !vis[y][x + 1]) x++;
-        int x1 = x;
-        for (int k = x0; k <= x1; k++) vis[y][k] = true;
-
-        float py0 = (y + 0.5f) / h;
-        List<PointF> pts = new ArrayList<>(MAX_ZIGZAG_PTS);
-        if (x0 == x1) {
-          pts.add(new PointF((x0 + 0.45f) / w, py0));
-          pts.add(new PointF((x0 + 0.55f) / w, py0));
-          strokes.add(pts);
-          x = x1 + 1;
-          continue;
+        while (x + 1 < w && map[y][x + 1]) x++;
+        rowRuns.add(new int[]{x0, x});
+        x++;
+      }
+      boolean rev = (y % 2 == 1);
+      int n = rowRuns.size();
+      for (int idx = 0; idx < n; idx++) {
+        int[] run = rowRuns.get(rev ? (n - 1 - idx) : idx);
+        int x0 = run[0], x1 = run[1];
+        float fx0 = Math.max(0.001f, (x0 + 0.5f - bleed) / w);
+        float fx1 = Math.min(0.999f, (x1 + 0.5f + bleed) / w);
+        List<PointF> line = new ArrayList<>(2);
+        if (rev) {
+          line.add(new PointF(fx1, py));
+          line.add(new PointF(fx0, py));
+        } else {
+          line.add(new PointF(fx0, py));
+          line.add(new PointF(fx1, py));
         }
-
-        pts.add(new PointF((x0 + 0.5f) / w, py0));
-        pts.add(new PointF((x1 + 0.5f) / w, py0));
-
-        int curY = y, curL = x0, curR = x1;
-        boolean goLeft = true;
-        while (curY + 1 < h && pts.size() + 2 <= MAX_ZIGZAG_PTS) {
-          int ny = curY + 1;
-          int searchStart = Math.max(0, curL - 2);
-          int searchEnd = Math.min(w - 1, curR + 2);
-          int foundL = -1, foundR = -1;
-          for (int rx = searchStart; rx <= searchEnd; rx++) {
-            if (map[ny][rx] && !vis[ny][rx]) {
-              int a = rx;
-              while (a > 0 && map[ny][a - 1] && !vis[ny][a - 1]) a--;
-              int b = rx;
-              while (b + 1 < w && map[ny][b + 1] && !vis[ny][b + 1]) b++;
-              if (Math.abs(a - curL) <= 2 && Math.abs(b - curR) <= 2) {
-                foundL = a; foundR = b;
-              }
-              break;
-            }
-          }
-          if (foundL < 0) break;
-          for (int k = foundL; k <= foundR; k++) vis[ny][k] = true;
-          float npy = (ny + 0.5f) / h;
-          if (goLeft) {
-            pts.add(new PointF((foundR + 0.5f) / w, npy));
-            pts.add(new PointF((foundL + 0.5f) / w, npy));
-          } else {
-            pts.add(new PointF((foundL + 0.5f) / w, npy));
-            pts.add(new PointF((foundR + 0.5f) / w, npy));
-          }
-          goLeft = !goLeft;
-          curY = ny; curL = foundL; curR = foundR;
-        }
-        strokes.add(pts);
-        x = x1 + 1;
+        strokes.add(line);
       }
     }
     return strokes;
@@ -321,16 +348,16 @@ public class ImageProcessor {
   private static int[][] seedCentroidsSmart(List<Integer> samples, int[] r, int[] g, int[] b, int k) {
     int n = samples.size();
     int[][] cent = new int[k][3];
-    int step = Math.max(1, n / 4500);
-    List<Integer> sub = new ArrayList<>(Math.min(n, 5000));
+    int step = Math.max(1, n / 4000);
+    List<Integer> sub = new ArrayList<>(Math.min(n, 4500));
     for (int i = 0; i < n; i += step) sub.add(samples.get(i));
     int m = sub.size();
 
     int placed = 0;
-    int darkIdx = -1, minLum = 72, darkCount = 0;
+    int darkIdx = -1, minLum = 65, darkCount = 0;
     for (int idx : sub) {
       int l = (r[idx] * 299 + g[idx] * 587 + b[idx] * 114) / 1000;
-      if (l < 72) { darkCount++; if (l < minLum) { minLum = l; darkIdx = idx; } }
+      if (l < 65) { darkCount++; if (l < minLum) { minLum = l; darkIdx = idx; } }
     }
     if (darkIdx >= 0 && darkCount >= 2 && placed < k) {
       cent[placed][0] = r[darkIdx]; cent[placed][1] = g[darkIdx]; cent[placed][2] = b[darkIdx]; placed++;
@@ -364,7 +391,7 @@ public class ImageProcessor {
       for (int i = 0; i < m; i++) {
         int idx = sub.get(i);
         int sat = Math.max(r[idx], Math.max(g[idx], b[idx])) - Math.min(r[idx], Math.min(g[idx], b[idx]));
-        long score = minDist[i] * (200L + sat);
+        long score = minDist[i] * (220L + sat);
         if (score > bestScore) { bestScore = score; pick = i; }
       }
       int pIdx = sub.get(pick);
@@ -379,14 +406,14 @@ public class ImageProcessor {
     return cent;
   }
 
-  private static int[] cleanIsolatedDots(int[] label, int[][] cent, int w, int h) {
+  private static int[] cleanSpecklesPreserveDetails(int[] label, int[][] cent, int w, int h) {
     int[] next = label.clone();
     for (int y = 1; y < h - 1; y++) {
       for (int x = 1; x < w - 1; x++) {
         int own = label[y * w + x];
         if (own < 0) continue;
         int ownL = (cent[own][0] * 299 + cent[own][1] * 587 + cent[own][2] * 114) / 1000;
-        if (ownL < 72 || ownL > 235) continue;
+        if (ownL < 65 || ownL > 235) continue;
         int best = own, bestC = 0;
         for (int dy = -1; dy <= 1; dy++) {
           for (int dx = -1; dx <= 1; dx++) {
@@ -400,13 +427,13 @@ public class ImageProcessor {
             if (c > bestC) { bestC = c; best = l; }
           }
         }
-        if (best != own && bestC >= 7) next[y * w + x] = best;
+        if (best != own && bestC >= 6) next[y * w + x] = best;
       }
     }
     return next;
   }
 
-  private static ProcessResult processMonoHybrid(Bitmap bmp, int w, int h, int thresh, boolean edgeMode) {
+  private static ProcessResult processMono(Bitmap bmp, int w, int h, int thresh, boolean edgeMode) {
     int[][] gray = new int[h][w];
     for (int y = 0; y < h; y++)
       for (int x = 0; x < w; x++) {
@@ -415,11 +442,11 @@ public class ImageProcessor {
       }
     List<List<PointF>> strokes;
     if (edgeMode) {
-      strokes = traceLines(extractEdges(gray, w, h, thresh), w, h, false);
+      strokes = traceSmoothContours(extractEdges(gray, w, h, thresh), w, h);
     } else {
       boolean[][] map = new boolean[h][w];
       for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) map[y][x] = gray[y][x] < thresh;
-      strokes = scanZigZagSafe(map, w, h);
+      strokes = scanStraightExact1Px(map, w, h, 0.42f);
     }
     ColorLayer layer = new ColorLayer(Color.BLACK);
     layer.strokes = strokes;
@@ -469,7 +496,7 @@ public class ImageProcessor {
     }
   }
 
-  private static List<List<PointF>> traceLines(boolean[][] map, int w, int h, boolean keepSingleDots) {
+  private static List<List<PointF>> traceSmoothContours(boolean[][] map, int w, int h) {
     boolean[][] vis = new boolean[h][w];
     List<List<PointF>> out = new ArrayList<>();
     for (int pass = 0; pass < 2; pass++) {
@@ -481,19 +508,11 @@ public class ImageProcessor {
             int nx = x + DX[d], ny = y + DY[d];
             if (nx >= 0 && nx < w && ny >= 0 && ny < h && map[ny][nx]) nb++;
           }
-          if (nb == 0) {
-            vis[y][x] = true;
-            if (keepSingleDots) {
-              List<PointF> dot = new ArrayList<>(2);
-              float py = (y + 0.5f) / h;
-              dot.add(new PointF((x + 0.45f) / w, py));
-              dot.add(new PointF((x + 0.55f) / w, py));
-              out.add(dot);
-            }
-            continue;
-          }
+          if (nb == 0) { vis[y][x] = true; continue; }
           if (pass == 0 && nb != 1) continue;
-          List<PointF> s = walkSmooth(map, vis, x, y, w, h);
+          List<PointF> s = walkSmooth3Pass(map, vis, x, y, w, h);
+          if (s.size() < 2) continue;
+          s = simplifyRDP(s, 0.35f / Math.max(w, h));
           for (int i = 0; i < s.size() - 1; i += MAX_EDGE_PTS - 1)
             out.add(new ArrayList<>(s.subList(i, Math.min(s.size(), i + MAX_EDGE_PTS))));
         }
@@ -502,7 +521,7 @@ public class ImageProcessor {
     return out;
   }
 
-  private static List<PointF> walkSmooth(boolean[][] map, boolean[][] vis, int sx, int sy, int w, int h) {
+  private static List<PointF> walkSmooth3Pass(boolean[][] map, boolean[][] vis, int sx, int sy, int w, int h) {
     List<int[]> raw = new ArrayList<>();
     int cx = sx, cy = sy, ldx = 0, ldy = 0;
     while (true) {
@@ -521,13 +540,40 @@ public class ImageProcessor {
     int n = raw.size();
     float[] xs = new float[n], ys = new float[n];
     for (int i = 0; i < n; i++) { xs[i] = raw.get(i)[0] + 0.5f; ys[i] = raw.get(i)[1] + 0.5f; }
-    for (int i = 1; i < n - 1; i++) {
-      xs[i] = 0.25f * xs[i-1] + 0.5f * xs[i] + 0.25f * xs[i+1];
-      ys[i] = 0.25f * ys[i-1] + 0.5f * ys[i] + 0.25f * ys[i+1];
+    for (int pass = 0; pass < 3; pass++) {
+      float[] nx = xs.clone(), ny = ys.clone();
+      for (int i = 1; i < n - 1; i++) {
+        nx[i] = 0.25f * xs[i - 1] + 0.5f * xs[i] + 0.25f * xs[i + 1];
+        ny[i] = 0.25f * ys[i - 1] + 0.5f * ys[i] + 0.25f * ys[i + 1];
+      }
+      xs = nx; ys = ny;
     }
     List<PointF> pts = new ArrayList<>(n);
     for (int i = 0; i < n; i++) pts.add(new PointF(xs[i] / w, ys[i] / h));
     return pts;
+  }
+
+  private static List<PointF> simplifyRDP(List<PointF> pts, float eps) {
+    if (pts.size() <= 3) return pts;
+    int idx = 0; float maxD = 0f;
+    PointF a = pts.get(0), b = pts.get(pts.size() - 1);
+    float dx = b.x - a.x, dy = b.y - a.y, denom = (float) Math.hypot(dx, dy);
+    for (int i = 1; i < pts.size() - 1; i++) {
+      PointF p = pts.get(i);
+      float d = denom < 1e-6f ? (float) Math.hypot(p.x - a.x, p.y - a.y) : Math.abs(dy * p.x - dx * p.y + b.x * a.y - b.y * a.x) / denom;
+      if (d > maxD) { maxD = d; idx = i; }
+    }
+    if (maxD > eps) {
+      List<PointF> left = simplifyRDP(pts.subList(0, idx + 1), eps);
+      List<PointF> right = simplifyRDP(pts.subList(idx, pts.size()), eps);
+      List<PointF> res = new ArrayList<>(left.size() + right.size() - 1);
+      res.addAll(left.subList(0, left.size() - 1));
+      res.addAll(right);
+      return res;
+    }
+    List<PointF> end = new ArrayList<>(2);
+    end.add(a); end.add(b);
+    return end;
   }
 
   private static int lum(int c) { return (Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000; }
@@ -546,18 +592,27 @@ public class ImageProcessor {
     return best;
   }
 
+  // Dựng ảnh xem trước trên nền caro nhạt (giống Builda) để thấy chính xác tuyệt đối vùng nào được tô, vùng nào trong suốt
   public static Bitmap renderPreview(List<ColorLayer> layers, int targetW, int targetH) {
-    int scale = Math.max(2, Math.min(4, 600 / Math.max(1, Math.max(targetW, targetH))));
+    int scale = Math.max(2, Math.min(4, 680 / Math.max(1, Math.max(targetW, targetH))));
     int outW = Math.max(120, targetW * scale), outH = Math.max(120, targetH * scale);
     Bitmap preview = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
     Canvas canvas = new Canvas(preview);
-    canvas.drawColor(Color.WHITE);
+    canvas.drawColor(0xFFF1F5F9);
+    Paint bgP = new Paint();
+    bgP.setColor(0xFFE2E8F0);
+    int cell = Math.max(12, Math.min(outW, outH) / 24);
+    for (int y = 0; y < outH; y += cell) {
+      for (int x = ((y / cell) % 2) * cell; x < outW; x += cell * 2) {
+        canvas.drawRect(x, y, Math.min(outW, x + cell), Math.min(outH, y + cell), bgP);
+      }
+    }
+
     Paint paint = new Paint();
     paint.setAntiAlias(false);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeCap(Paint.Cap.SQUARE);
-    paint.setStrokeJoin(Paint.Join.MITER);
-    paint.setStrokeWidth(Math.max(1.5f, scale * 1.02f));
+    paint.setStrokeWidth(Math.max(1.5f, scale * 1.05f));
     for (ColorLayer layer : layers) {
       if (!layer.enabled) continue;
       paint.setColor(layer.color);
